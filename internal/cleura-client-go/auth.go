@@ -28,7 +28,7 @@ func (c *Client) GetToken() (*AuthResponse, error) {
 		return nil, err
 	}
 
-	body, err := c.doRequest(req, nil)
+	body, err := c.doRequest(req, 200, nil)
 	if err != nil {
 		return nil, err
 	}

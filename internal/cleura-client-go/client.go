@@ -10,6 +10,16 @@ import (
 // HostURL - Default Cleura API Endpoint prefix
 const HostURL string = "https://rest.cleura.cloud" //"http://localhost:8088/"
 
+// Need to know status code for retry
+type RequestAPIError struct {
+	StatusCode int
+	Err        error
+}
+
+func (r *RequestAPIError) Error() string {
+	return r.Err.Error()
+}
+
 // Client -
 type Client struct {
 	HostURL    string
@@ -34,7 +44,7 @@ type AuthResponse struct {
 // NewClient -
 func NewClient(host, username, password *string) (*Client, error) {
 	c := Client{
-		HTTPClient: &http.Client{Timeout: 10 * time.Second},
+		HTTPClient: &http.Client{Timeout: 600 * time.Second},
 		// Default API URL
 		HostURL: HostURL,
 	}
@@ -63,7 +73,7 @@ func NewClient(host, username, password *string) (*Client, error) {
 	return &c, nil
 }
 
-func (c *Client) doRequest(req *http.Request, authToken *string) ([]byte, error) {
+func (c *Client) doRequest(req *http.Request, successResponse int, authToken *string) ([]byte, error) {
 	token := c.Token
 
 	if authToken != nil {
@@ -84,9 +94,13 @@ func (c *Client) doRequest(req *http.Request, authToken *string) ([]byte, error)
 		return nil, err
 	}
 
-	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status: %d, body: %s", res.StatusCode, body)
+	if res.StatusCode != successResponse {
+		rErr := RequestAPIError{
+			Err:        fmt.Errorf("actual_status: %d, expected_status: %d, body: %s", res.StatusCode, successResponse, body),
+			StatusCode: res.StatusCode,
+		}
+		return nil, &rErr
 	}
 
-	return body, err
+	return body, nil
 }

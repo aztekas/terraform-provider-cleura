@@ -114,13 +114,11 @@ func (d *shootClusterDataSource) Schema(_ context.Context, _ datasource.SchemaRe
 func (d *shootClusterDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {
 	var state shootClusterDataSourceModel
 
-	req.Config.Get(ctx, &state)
-	/*Try this instead
-	response.Diagnostics.Append(request.Config.Get(ctx, &state)...)
-	if response.Diagnostics.HasError() {
+	resp.Diagnostics.Append(req.Config.Get(ctx, &state)...)
+	if resp.Diagnostics.HasError() {
 		return
 	}
-	*/
+
 	cluster, err := d.client.GetShootCluster(state.Name.ValueString(), state.Region.ValueString(), state.Project.ValueString())
 
 	if err != nil {

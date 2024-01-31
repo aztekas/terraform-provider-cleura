@@ -13,8 +13,26 @@ type MetadataFields struct {
 }
 
 type SpecFields struct {
-	Purpose string `json:"purpose"`
-	Region  string `json:"region"`
+	Purpose     string             `json:"purpose"`
+	Region      string             `json:"region"`
+	Provider    ProviderDetails    `json:"provider"`
+	Kubernetes  KubernetesDetails  `json:"kubernetes"`
+	Hibernation HibernationDetails `json:"hibernation"`
+}
+
+type HibernationDetails struct {
+	Enabled                      bool                          `json:"enabled"`
+	HibernationResponseSchedules []HibernationResponseSchedule `json:"schedules"`
+}
+
+type HibernationResponseSchedule struct {
+	Start    string `json:"start"`
+	End      string `json:"end"`
+	Location string `json:"location"`
+}
+
+type KubernetesDetails struct {
+	Version string `json:"version"`
 }
 
 type StatusFields struct {
@@ -40,7 +58,7 @@ type ShootClusterRequest struct {
 }
 
 type ShootClusterRequestConfig struct {
-	Name              string                `json:"name,omitempty"`
+	Name              string                `json:"name"`
 	KubernetesVersion K8sVersion            `json:"kubernetes"`
 	Provider          ProviderDetails       `json:"provider"`
 	Hibernation       *HibernationSchedules `json:"hibernation,omitempty"`
@@ -56,7 +74,14 @@ type ProviderDetails struct {
 
 type InfrastructureConfigDetails struct {
 	FloatingPoolName string `json:"floatingPoolName"`
+	//Networks *WorkerNetwork `json:"networks,omitempty"`
 }
+
+/*
+type WorkerNetwork struct {
+	WorkersCIDR string `json:"workers,omitempty"`
+}
+*/
 
 // Provider.Workers.Worker
 type Worker struct {
@@ -86,8 +111,8 @@ type HibernationSchedules struct {
 }
 
 type HibernationSchedule struct {
-	Start string `json:"start,omitempty"`
-	End   string `json:"end,omitempty"`
+	Start string `json:"start"`
+	End   string `json:"end"`
 }
 
 /*
