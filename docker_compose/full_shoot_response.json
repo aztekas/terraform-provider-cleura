@@ -1,0 +1,277 @@
+{
+  "apiVersion": "core.gardener.cloud/v1beta1",
+  "kind": "Shoot",
+  "metadata": {
+    "name": "cleura-nais",
+    "namespace": "garden-p39608",
+    "uid": "dc279da4-c0d7-42e7-aaf9-5938907b11c7",
+    "resourceVersion": "339084593",
+    "generation": 54,
+    "creationTimestamp": "2024-01-08T09:13:38Z",
+    "labels": {
+      "networking.extensions.gardener.cloud/calico": "true",
+      "operatingsystemconfig.extensions.gardener.cloud/gardenlinux": "true",
+      "provider.extensions.gardener.cloud/openstack": "true",
+      "shoot.gardener.cloud/k8sEOLLastVerificationDate": "2024-01-24",
+      "shoot.gardener.cloud/status": "healthy"
+    },
+    "annotations": {
+      "gardener.cloud/created-by": "system:serviceaccount:garden-p39608:u39608",
+      "shoot.gardener.cloud/tasks": "deployDNSRecordInternal,deployDNSRecordExternal,deployDNSRecordIngress"
+    }
+  },
+  "spec": {
+    "addons": {
+      "kubernetesDashboard": {
+        "enabled": false,
+        "authenticationMode": "token"
+      }
+    },
+    "cloudProfileName": "cleuracloud",
+    "dns": {
+      "domain": "cleura-nais.p39608.k8s.cleura.cloud"
+    },
+    "hibernation": {
+      "enabled": true
+    },
+    "kubernetes": {
+      "kubeAPIServer": {
+        "requests": {
+          "maxNonMutatingInflight": 400,
+          "maxMutatingInflight": 200
+        },
+        "enableAnonymousAuthentication": false,
+        "eventTTL": "1h0m0s",
+        "logging": {
+          "verbosity": 2
+        },
+        "defaultNotReadyTolerationSeconds": 300,
+        "defaultUnreachableTolerationSeconds": 300
+      },
+      "kubeControllerManager": {
+        "nodeCIDRMaskSize": 24,
+        "nodeMonitorGracePeriod": "40s"
+      },
+      "kubeScheduler": {
+        "profile": "balanced"
+      },
+      "kubeProxy": {
+        "mode": "IPTables",
+        "enabled": true
+      },
+      "kubelet": {
+        "failSwapOn": true,
+        "kubeReserved": {
+          "cpu": "80m",
+          "memory": "1Gi",
+          "pid": "20k"
+        },
+        "imageGCHighThresholdPercent": 50,
+        "imageGCLowThresholdPercent": 40,
+        "serializeImagePulls": true
+      },
+      "version": "1.27.8",
+      "enableStaticTokenKubeconfig": false
+    },
+    "networking": {
+      "type": "calico",
+      "providerConfig": {
+        "overlay": {
+          "enabled": true
+        }
+      },
+      "pods": "100.96.0.0/11",
+      "nodes": "10.250.0.0/16",
+      "services": "100.64.0.0/13",
+      "ipFamilies": [
+        "IPv4"
+      ]
+    },
+    "maintenance": {
+      "autoUpdate": {
+        "kubernetesVersion": true,
+        "machineImageVersion": true
+      },
+      "timeWindow": {
+        "begin": "050000+0100",
+        "end": "070000+0100"
+      }
+    },
+    "provider": {
+      "type": "openstack",
+      "controlPlaneConfig": {
+        "apiVersion": "openstack.provider.extensions.gardener.cloud/v1alpha1",
+        "kind": "ControlPlaneConfig",
+        "loadBalancerProvider": "amphora",
+        "zone": "nova"
+      },
+      "infrastructureConfig": {
+        "apiVersion": "openstack.provider.extensions.gardener.cloud/v1alpha1",
+        "kind": "InfrastructureConfig",
+        "floatingPoolName": "ext-net",
+        "networks": {
+          "workers": "10.250.0.0/16"
+        }
+      },
+      "workers": [
+        {
+          "cri": {
+            "name": "containerd"
+          },
+          "name": "jrfxxx",
+          "machine": {
+            "type": "b.2c8gb",
+            "image": {
+              "name": "gardenlinux",
+              "version": "1312.2.0"
+            },
+            "architecture": "amd64"
+          },
+          "maximum": 3,
+          "minimum": 1,
+          "maxSurge": 2,
+          "maxUnavailable": 0,
+          "providerConfig": {
+            "apiVersion": "openstack.provider.extensions.gardener.cloud/v1alpha1",
+            "kind": "WorkerConfig",
+            "serverGroup": {
+              "policy": "anti-affinity"
+            }
+          },
+          "volume": {
+            "size": "50Gi"
+          },
+          "zones": [
+            "nova"
+          ],
+          "systemComponents": {
+            "allow": true
+          }
+        }
+      ],
+      "workersSettings": {
+        "sshAccess": {
+          "enabled": true
+        }
+      }
+    },
+    "purpose": "BOOBOOOBOOOOOOO",
+    "region": "Sto2",
+    "secretBindingName": "communication-secret-50d69c6651324c725e609aba8e702fb0",
+    "seedName": "sto2-1",
+    "systemComponents": {
+      "coreDNS": {
+        "autoscaling": {
+          "mode": "horizontal"
+        }
+      }
+    },
+    "schedulerName": "default-scheduler"
+  },
+  "status": {
+    "conditions": [
+      {
+        "type": "APIServerAvailable",
+        "status": "True",
+        "lastTransitionTime": "2024-01-24T13:20:36Z",
+        "lastUpdateTime": "2024-01-24T13:20:36Z",
+        "reason": "ConditionNotChecked",
+        "message": "Shoot cluster has been hibernated."
+      },
+      {
+        "type": "ControlPlaneHealthy",
+        "status": "True",
+        "lastTransitionTime": "2024-01-24T13:20:36Z",
+        "lastUpdateTime": "2024-01-24T13:20:36Z",
+        "reason": "ConditionNotChecked",
+        "message": "Shoot cluster has been hibernated."
+      },
+      {
+        "type": "ObservabilityComponentsHealthy",
+        "status": "True",
+        "lastTransitionTime": "2024-01-24T13:20:36Z",
+        "lastUpdateTime": "2024-01-24T13:20:36Z",
+        "reason": "ConditionNotChecked",
+        "message": "Shoot cluster has been hibernated."
+      },
+      {
+        "type": "EveryNodeReady",
+        "status": "True",
+        "lastTransitionTime": "2024-01-24T13:20:36Z",
+        "lastUpdateTime": "2024-01-24T13:20:36Z",
+        "reason": "ConditionNotChecked",
+        "message": "Shoot cluster has been hibernated."
+      },
+      {
+        "type": "SystemComponentsHealthy",
+        "status": "True",
+        "lastTransitionTime": "2024-01-24T13:20:36Z",
+        "lastUpdateTime": "2024-01-24T13:20:36Z",
+        "reason": "ConditionNotChecked",
+        "message": "Shoot cluster has been hibernated."
+      }
+    ],
+    "constraints": [
+      {
+        "type": "HibernationPossible",
+        "status": "True",
+        "lastTransitionTime": "2024-01-24T13:41:06Z",
+        "lastUpdateTime": "2024-01-24T13:41:06Z",
+        "reason": "ConstraintNotChecked",
+        "message": "Shoot cluster has been hibernated."
+      },
+      {
+        "type": "MaintenancePreconditionsSatisfied",
+        "status": "True",
+        "lastTransitionTime": "2024-01-24T13:41:06Z",
+        "lastUpdateTime": "2024-01-24T13:41:06Z",
+        "reason": "ConstraintNotChecked",
+        "message": "Shoot cluster has been hibernated."
+      },
+      {
+        "type": "CACertificateValiditiesAcceptable",
+        "status": "True",
+        "lastTransitionTime": "2024-01-24T13:41:06Z",
+        "lastUpdateTime": "2024-01-24T13:41:06Z",
+        "reason": "ConstraintNotChecked",
+        "message": "Shoot cluster has been hibernated."
+      },
+      {
+        "type": "CRDsWithProblematicConversionWebhooks",
+        "status": "True",
+        "lastTransitionTime": "2024-01-24T13:41:06Z",
+        "lastUpdateTime": "2024-01-24T13:41:06Z",
+        "reason": "ConstraintNotChecked",
+        "message": "Shoot cluster has been hibernated."
+      }
+    ],
+    "gardener": {
+      "id": "NVFMw4R6QFLfyW6LY7DAzo8UGz0s5erpxAyL1UVq23Jh9MCAGXCLxfbXZv9AeVp2",
+      "name": "gardenlet-db49b878c-crgsn",
+      "version": "v1.84.2"
+    },
+    "hibernated": true,
+    "lastOperation": {
+      "description": "Shoot cluster has been successfully reconciled.",
+      "lastUpdateTime": "2024-01-24T13:20:36Z",
+      "progress": 100,
+      "state": "Succeeded",
+      "type": "Reconcile"
+    },
+    "observedGeneration": 54,
+    "technicalID": "shoot--p39608--cleura-nais",
+    "uid": "dc279da4-c0d7-42e7-aaf9-5938907b11c7",
+    "clusterIdentity": "shoot--p39608--cleura-nais-dc279da4-c0d7-42e7-aaf9-5938907b11c7-garden-cluster-identity",
+    "advertisedAddresses": [
+      {
+        "name": "external",
+        "url": "https://api.cleura-nais.p39608.k8s.cleura.cloud"
+      },
+      {
+        "name": "internal",
+        "url": "https://api.cleura-nais.p39608.internal.k8s.cleura.cloud"
+      }
+    ],
+    "lastHibernationTriggerTime": "2024-01-19T08:00:00Z"
+  }
+}
