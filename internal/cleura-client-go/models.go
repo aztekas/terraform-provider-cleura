@@ -58,9 +58,9 @@ type ShootClusterRequest struct {
 }
 
 type ShootClusterRequestConfig struct {
-	Name              string                `json:"name"`
-	KubernetesVersion K8sVersion            `json:"kubernetes"`
-	Provider          ProviderDetails       `json:"provider"`
+	Name              string                `json:"name,omitempty"`
+	KubernetesVersion *K8sVersion           `json:"kubernetes,omitempty"`
+	Provider          *ProviderDetails      `json:"provider,omitempty"`
 	Hibernation       *HibernationSchedules `json:"hibernation,omitempty"`
 }
 type K8sVersion struct {

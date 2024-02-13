@@ -206,11 +206,11 @@ type hibernationScheduleModel struct {
 }
 
 type shootProviderDetailsModel struct {
-	FloatingPoolName types.String  `tfsdk:"floating_pool_name"`
-	WorkerGroups     []WorkerGroup `tfsdk:"worker_groups"`
+	FloatingPoolName types.String       `tfsdk:"floating_pool_name"`
+	WorkerGroups     []workerGroupModel `tfsdk:"worker_groups"`
 }
 
-type WorkerGroup struct {
+type workerGroupModel struct {
 	WorkerGroupName types.String `tfsdk:"worker_group_name"`
 	MachineType     string       `tfsdk:"machine_type"`
 	ImageName       types.String `tfsdk:"image_name"`
@@ -236,6 +236,7 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
+	// Mapping defined workers
 	var clusterWorkers []cleura.Worker
 
 	for _, worker := range plan.ProviderDetails.WorkerGroups {
@@ -255,17 +256,31 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 		},
 		)
 	}
+	// Mapping hibernation schedules
+	var hibernationSchedules []cleura.HibernationSchedule
+	for _, schedule := range plan.HibernationSchedules {
+		hibernationSchedules = append(hibernationSchedules, cleura.HibernationSchedule{
+			Start: schedule.Start.ValueString(),
+			End:   schedule.End.ValueString(),
+		},
+		)
+	}
+
+	//------------------------------
 	clusterRequest := cleura.ShootClusterRequest{
 		Shoot: cleura.ShootClusterRequestConfig{
 			Name: plan.Name.ValueString(),
-			KubernetesVersion: cleura.K8sVersion{
+			KubernetesVersion: &cleura.K8sVersion{
 				Version: plan.K8sVersion.ValueString(),
 			},
-			Provider: cleura.ProviderDetails{
+			Provider: &cleura.ProviderDetails{
 				InfrastructureConfig: cleura.InfrastructureConfigDetails{
 					FloatingPoolName: plan.ProviderDetails.FloatingPoolName.ValueString(),
 				},
 				Workers: clusterWorkers,
+			},
+			Hibernation: &cleura.HibernationSchedules{
+				HibernationSchedules: hibernationSchedules,
 			},
 		},
 	}
@@ -282,9 +297,9 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 	plan.Hibernated = types.BoolValue(shootResponse.Status.Hibernated)
 	plan.LastUpdated = types.StringValue(time.Now().Format(time.RFC850))
 
-	plan.ProviderDetails.WorkerGroups = []WorkerGroup{}
+	plan.ProviderDetails.WorkerGroups = []workerGroupModel{}
 	for _, worker := range shootResponse.Spec.Provider.Workers {
-		plan.ProviderDetails.WorkerGroups = append(plan.ProviderDetails.WorkerGroups, WorkerGroup{
+		plan.ProviderDetails.WorkerGroups = append(plan.ProviderDetails.WorkerGroups, workerGroupModel{
 			WorkerGroupName: types.StringValue(worker.Name),
 			MachineType:     worker.Machine.Type,
 			ImageName:       types.StringValue(worker.Machine.Image.Name),
@@ -387,9 +402,9 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 	state.UID = types.StringValue(shootResponse.Metadata.UID)
 	state.Hibernated = types.BoolValue(shootResponse.Status.Hibernated)
 
-	state.ProviderDetails.WorkerGroups = []WorkerGroup{}
+	state.ProviderDetails.WorkerGroups = []workerGroupModel{}
 	for _, worker := range shootResponse.Spec.Provider.Workers {
-		state.ProviderDetails.WorkerGroups = append(state.ProviderDetails.WorkerGroups, WorkerGroup{
+		state.ProviderDetails.WorkerGroups = append(state.ProviderDetails.WorkerGroups, workerGroupModel{
 			WorkerGroupName: types.StringValue(worker.Name),
 			MachineType:     worker.Machine.Type,
 			ImageName:       types.StringValue(worker.Machine.Image.Name),
@@ -400,6 +415,14 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 		})
 
 	}
+	state.HibernationSchedules = []hibernationScheduleModel{}
+	for _, schedule := range shootResponse.Spec.Hibernation.HibernationResponseSchedules {
+		state.HibernationSchedules = append(state.HibernationSchedules, hibernationScheduleModel{
+			Start: types.StringValue(schedule.Start),
+			End:   types.StringValue(schedule.End),
+		})
+	}
+
 }
 
 // Update updates the resource and sets the updated Terraform state on success.
