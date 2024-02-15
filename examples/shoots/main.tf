@@ -34,12 +34,12 @@ resource "cleura_shoot_cluster" "test" {
 
   hibernation_schedules = [
 	{
-		start = "00 18 * * 1,2,3,4,5"
+		start = "00 19 * * 1,2,3,4,5"
 		end = "00 08 * * 1,2,3,4,5"
 	},
 	# {
-	# 	start = "00 18 * * 1,2,3,4,5"
-	# 	end = "00 08 * * 1,2,3,4,5"
+	# 	start = "00 11 * * 1,2,3,4,5"
+	# 	end = "00 13 * * 1,2,3,4,5"
 	# },
 
   ]

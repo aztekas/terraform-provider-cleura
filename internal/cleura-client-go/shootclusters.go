@@ -63,3 +63,28 @@ func (c *Client) DeleteShootCluster(clusterName string, clusterRegion string, cl
 	}
 	return string(body), nil
 }
+
+func (c *Client) UpdateShootCluster(clusterRegion string, clusterProject string, clusterName string, shootClusterUpdateRequest ShootClusterRequest) (*ShootClusterResponse, error) {
+	crJsonByte, err := json.Marshal(shootClusterUpdateRequest)
+	if err != nil {
+		return nil, err
+	}
+	//https://rest.cleura.cloud/gardener/v1/:gardenDomain/shoot/:region/:project/:shoot
+	req, err := http.NewRequest("PUT", fmt.Sprintf("%s/gardener/v1/public/shoot/%s/%s/%s", c.HostURL, clusterRegion, clusterProject, clusterName), strings.NewReader(string(crJsonByte)))
+	if err != nil {
+		return nil, err
+	}
+	body, err := c.doRequest(req, 202, nil)
+	if err != nil {
+		return nil, err
+	}
+	//fmt.Println("Here's the body!: \n", string(body))
+	var createdShootCluster ShootClusterResponse
+	err = json.Unmarshal(body, &createdShootCluster)
+	fmt.Println(string(body))
+	if err != nil {
+		return nil, err
+	}
+
+	return &createdShootCluster, nil
+}

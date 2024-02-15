@@ -22,7 +22,7 @@ type SpecFields struct {
 
 type HibernationDetails struct {
 	Enabled                      bool                          `json:"enabled"`
-	HibernationResponseSchedules []HibernationResponseSchedule `json:"schedules"`
+	HibernationResponseSchedules []HibernationResponseSchedule `json:"schedules,omitempty"`
 }
 
 type HibernationResponseSchedule struct {

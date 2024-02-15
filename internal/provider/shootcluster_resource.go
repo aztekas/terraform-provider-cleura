@@ -15,6 +15,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/types"
+	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/zaikinlv/terraform-provider-cleura/internal/cleura-client-go"
 )
 
@@ -95,6 +96,7 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 			"timeouts": timeouts.Attributes(ctx, timeouts.Opts{
 				Create: true,
 				Delete: true,
+				Update: true,
 			}),
 			"name": schema.StringAttribute{
 				Required: true,
@@ -116,6 +118,9 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 			},
 			"uid": schema.StringAttribute{
 				Computed: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"hibernated": schema.BoolAttribute{
 				Computed: true,
@@ -138,6 +143,9 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 								"worker_group_name": schema.StringAttribute{
 									Optional: true,
 									Computed: true,
+									PlanModifiers: []planmodifier.String{
+										stringplanmodifier.UseStateForUnknown(),
+									},
 								},
 								"min_nodes": schema.Int64Attribute{
 									Optional: true,
@@ -222,6 +230,7 @@ type workerGroupModel struct {
 
 // Create creates the resource and sets the initial Terraform state.
 func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
+	tflog.Debug(ctx, "XXX_CREATE")
 	var plan shootClusterResourceModel
 	diags := req.Plan.Get(ctx, &plan)
 	resp.Diagnostics.Append(diags...)
@@ -310,7 +319,7 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 		})
 	}
 
-	err = createClusterOperationWaiter(r.client, ctx, createTimeout, plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
+	err = clusterReadyOperationWaiter(r.client, ctx, createTimeout, plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 
@@ -329,7 +338,7 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 
 }
 
-func createClusterOperationWaiter(client *cleura.Client, ctx context.Context, maxRetryTime time.Duration, clusterName string, clusterRegion string, clusterProject string) error {
+func clusterReadyOperationWaiter(client *cleura.Client, ctx context.Context, maxRetryTime time.Duration, clusterName string, clusterRegion string, clusterProject string) error {
 	b := backoff.NewExponentialBackOff()
 	b.MaxElapsedTime = maxRetryTime - 1*time.Minute
 	b.MaxInterval = 2 * time.Minute
@@ -380,7 +389,7 @@ func deleteClusterOperationWaiter(client *cleura.Client, ctx context.Context, ma
 
 // Read refreshes the Terraform state with the latest data.
 func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
-
+	tflog.Debug(ctx, "XXX_READ")
 	// Get current state
 	var state shootClusterResourceModel
 
@@ -398,9 +407,11 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 		)
 		return
 	}
+
 	state.Name = types.StringValue(shootResponse.Metadata.Name)
 	state.UID = types.StringValue(shootResponse.Metadata.UID)
 	state.Hibernated = types.BoolValue(shootResponse.Status.Hibernated)
+	state.K8sVersion = types.StringValue(shootResponse.Spec.Kubernetes.Version)
 
 	state.ProviderDetails.WorkerGroups = []workerGroupModel{}
 	for _, worker := range shootResponse.Spec.Provider.Workers {
@@ -423,15 +434,113 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 		})
 	}
 
+
+	// Set refreshed state
+    diags = resp.State.Set(ctx, &state)
+    resp.Diagnostics.Append(diags...)
+    if resp.Diagnostics.HasError() {
+        return
+    }
+
 }
 
 // Update updates the resource and sets the updated Terraform state on success.
 func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
+	tflog.Debug(ctx, "XXX_UPDATE")
+	var plan shootClusterResourceModel
+	var currentState shootClusterResourceModel
+	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	resp.Diagnostics.Append(req.State.Get(ctx, &currentState)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	createTimeout, diags := plan.Timeouts.Update(ctx, 45*time.Minute)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, createTimeout)
+	defer cancel()
+	var hibernationSchedules []cleura.HibernationSchedule
+	for _, schedule := range plan.HibernationSchedules {
+		hibernationSchedules = append(hibernationSchedules, cleura.HibernationSchedule{
+			Start: schedule.Start.ValueString(),
+			End:   schedule.End.ValueString(),
+		},
+		)
+	}
+	clusterUpdateRequest := cleura.ShootClusterRequest{
+		Shoot: cleura.ShootClusterRequestConfig{
+			KubernetesVersion: &cleura.K8sVersion{
+				Version: plan.K8sVersion.ValueString(),
+			},
+			Hibernation: &cleura.HibernationSchedules{
+				HibernationSchedules: hibernationSchedules,
+			},
+		},
+	}
+
+	//shootUpdateResponse, err := r.client.CreateShootCluster(plan.Region.ValueString(), plan.Project.ValueString(), clusterRequest)
+	clusterUpdateResp, err := r.client.UpdateShootCluster(plan.Region.ValueString(), plan.Project.ValueString(), plan.Name.ValueString(), clusterUpdateRequest)
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Error updating shoot cluster",
+			"Could not update cluster, unexpected error: "+err.Error(),
+		)
+		return
+	}
+
+	// Set computed values here
+	plan.UID = currentState.UID //types.StringValue(clusterUpdateResp.Metadata.UID)
+	plan.Hibernated = types.BoolValue(clusterUpdateResp.Status.Hibernated)
+	plan.LastUpdated = types.StringValue(time.Now().Format(time.RFC850))
+
+	//Required mostly due to WorkerGroupName being computed, better make it required
+	plan.ProviderDetails.WorkerGroups = []workerGroupModel{}
+	for _, worker := range clusterUpdateResp.Spec.Provider.Workers {
+		plan.ProviderDetails.WorkerGroups = append(plan.ProviderDetails.WorkerGroups, workerGroupModel{
+			WorkerGroupName: types.StringValue(worker.Name),
+			MachineType:     worker.Machine.Type,
+			ImageName:       types.StringValue(worker.Machine.Image.Name),
+			ImageVersion:    types.StringValue(worker.Machine.Image.Version),
+			VolumeSize:      types.StringValue(worker.Volume.Size),
+			MinNodes:        worker.Minimum,
+			MaxNodes:        worker.Maximum,
+		})
+	}
+	plan.HibernationSchedules = []hibernationScheduleModel{}
+	for _, schedule := range clusterUpdateResp.Spec.Hibernation.HibernationResponseSchedules {
+		plan.HibernationSchedules = append(plan.HibernationSchedules, hibernationScheduleModel{
+			Start: types.StringValue(schedule.Start),
+			End:   types.StringValue(schedule.End),
+		})
+	}
+
+	// Wait cluster ready after update
+	err = clusterReadyOperationWaiter(r.client, ctx, createTimeout, plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError(
+
+			"API Error Shoot Cluster Resource status check",
+			fmt.Sprintf("... details ... %s", err),
+		)
+		return
+	}
+	// Setting the final state
+	diags = resp.State.Set(ctx, plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 }
 
 // Delete deletes the resource and removes the Terraform state on success.
 func (r *shootClusterResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
+	tflog.Debug(ctx, "XXX_DELETE")
 	var state shootClusterResourceModel
 	diags := req.State.Get(ctx, &state)
 	resp.Diagnostics.Append(diags...)
