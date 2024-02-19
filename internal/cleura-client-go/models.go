@@ -36,10 +36,18 @@ type KubernetesDetails struct {
 }
 
 type StatusFields struct {
-	Conditions          []Condition         `json:"conditions"`
-	Hibernated          bool                `json:"hibernated"`
-	AdvertisedAddresses []AdvertisedAddress `json:"advertisedAddresses"`
+	Conditions          []Condition          `json:"conditions"`
+	Hibernated          bool                 `json:"hibernated"`
+	AdvertisedAddresses []AdvertisedAddress  `json:"advertisedAddresses"`
+	LastOperation       LastOperationDetails `json:"lastOperation"`
 }
+
+type LastOperationDetails struct {
+	Progress int16  `json:"progress"`
+	State    string `json:"state"`
+	Type     string `json:"type"`
+}
+
 type Condition struct {
 	Type    string `json:"type"`
 	Status  string `json:"status"`
@@ -115,18 +123,8 @@ type HibernationSchedule struct {
 	End   string `json:"end"`
 }
 
-/*
-"minimum": 3,
-                    "maximum": 10,
-                    "maxSurge": 2,
-                    "machine": {
-                        "type": "4C-8GB-50GB",
-                        "image": {
-                            "name": "ubuntu",
-                            "version": "20.4.20200423"
-                        }
-                    },
-                    "volume": {
-                        "size": "50Gi"
-                    }
-*/
+// Working groups
+
+type WorkerGroupRequest struct {
+	Worker Worker `json:"worker"`
+}

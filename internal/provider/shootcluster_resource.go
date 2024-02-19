@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -141,17 +142,16 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 						NestedObject: schema.NestedAttributeObject{
 							Attributes: map[string]schema.Attribute{
 								"worker_group_name": schema.StringAttribute{
-									Optional: true,
-									Computed: true,
-									PlanModifiers: []planmodifier.String{
-										stringplanmodifier.UseStateForUnknown(),
-									},
+									Required: true,
+									// PlanModifiers: []planmodifier.String{
+									// 	stringplanmodifier.RequiresReplace(),
+									// },
 								},
 								"min_nodes": schema.Int64Attribute{
-									Optional: true,
+									Required: true,
 								},
 								"max_nodes": schema.Int64Attribute{
-									Optional: true,
+									Required: true,
 								},
 								"machine_type": schema.StringAttribute{
 									Required: true,
@@ -262,6 +262,8 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 			Volume: cleura.VolumeDetails{
 				Size: worker.VolumeSize.ValueString(),
 			},
+			Minimum: worker.MinNodes,
+			Maximum: worker.MaxNodes,
 		},
 		)
 	}
@@ -338,11 +340,31 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 
 }
 
+func clusterReconcileWaiter(client *cleura.Client, ctx context.Context, maxRetryTime time.Duration, clusterName string, clusterRegion string, clusterProject string) error {
+	b := backoff.NewExponentialBackOff()
+	b.MaxElapsedTime = 20 * time.Minute
+	b.MaxInterval = 1 * time.Minute
+	b.Multiplier = 2
+	operation := func() error {
+		clusterResp, err := client.GetShootCluster(clusterName, clusterRegion, clusterProject)
+		if err != nil {
+			return backoff.Permanent(err)
+		}
+		lastState := clusterResp.Status.LastOperation.State
+		lastOperationType := clusterResp.Status.LastOperation.Type
+		if !((lastState == "Succeeded" && lastOperationType == "Create") || (lastState == "Succeeded" && lastOperationType == "Reconcile")) {
+			return errors.New("last operation is not finished yet")
+		}
+		return nil
+	}
+	return backoff.Retry(operation, backoff.WithContext(b, ctx))
+}
+
 func clusterReadyOperationWaiter(client *cleura.Client, ctx context.Context, maxRetryTime time.Duration, clusterName string, clusterRegion string, clusterProject string) error {
 	b := backoff.NewExponentialBackOff()
 	b.MaxElapsedTime = maxRetryTime - 1*time.Minute
-	b.MaxInterval = 2 * time.Minute
-	b.InitialInterval = 10 * time.Second
+	b.MaxInterval = 1 * time.Minute
+	b.InitialInterval = 5 * time.Minute
 	b.Multiplier = 2
 	operation := func() error {
 		clusterResp, err := client.GetShootCluster(clusterName, clusterRegion, clusterProject)
@@ -353,9 +375,7 @@ func clusterReadyOperationWaiter(client *cleura.Client, ctx context.Context, max
 			if cond.Status != "True" {
 				return errors.New("cluster is not ready yet")
 			}
-
 		}
-
 		return nil
 	}
 	return backoff.Retry(operation, backoff.WithContext(b, ctx))
@@ -366,7 +386,7 @@ func deleteClusterOperationWaiter(client *cleura.Client, ctx context.Context, ma
 	b := backoff.NewExponentialBackOff()
 	b.MaxElapsedTime = maxRetryTime - 1*time.Minute
 	b.MaxInterval = 2 * time.Minute
-	b.InitialInterval = 10 * time.Second
+	b.InitialInterval = 7 * time.Minute
 	b.Multiplier = 2
 	operation := func() error {
 
@@ -434,13 +454,12 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 		})
 	}
 
-
 	// Set refreshed state
-    diags = resp.State.Set(ctx, &state)
-    resp.Diagnostics.Append(diags...)
-    if resp.Diagnostics.HasError() {
-        return
-    }
+	diags = resp.State.Set(ctx, &state)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 }
 
@@ -457,6 +476,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
 	createTimeout, diags := plan.Timeouts.Update(ctx, 45*time.Minute)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -464,41 +484,138 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
-	var hibernationSchedules []cleura.HibernationSchedule
-	for _, schedule := range plan.HibernationSchedules {
-		hibernationSchedules = append(hibernationSchedules, cleura.HibernationSchedule{
-			Start: schedule.Start.ValueString(),
-			End:   schedule.End.ValueString(),
-		},
-		)
-	}
-	clusterUpdateRequest := cleura.ShootClusterRequest{
-		Shoot: cleura.ShootClusterRequestConfig{
-			KubernetesVersion: &cleura.K8sVersion{
-				Version: plan.K8sVersion.ValueString(),
+
+	if !reflect.DeepEqual(plan.HibernationSchedules, currentState.HibernationSchedules) {
+		tflog.Debug(ctx, "Hibernation schedules changed")
+
+		var hibernationSchedules []cleura.HibernationSchedule
+		for _, schedule := range plan.HibernationSchedules {
+			hibernationSchedules = append(hibernationSchedules, cleura.HibernationSchedule{
+				Start: schedule.Start.ValueString(),
+				End:   schedule.End.ValueString(),
 			},
-			Hibernation: &cleura.HibernationSchedules{
-				HibernationSchedules: hibernationSchedules,
+			)
+		}
+		clusterUpdateRequest := cleura.ShootClusterRequest{
+			Shoot: cleura.ShootClusterRequestConfig{
+				KubernetesVersion: &cleura.K8sVersion{
+					Version: plan.K8sVersion.ValueString(),
+				},
+				Hibernation: &cleura.HibernationSchedules{
+					HibernationSchedules: hibernationSchedules,
+				},
 			},
-		},
+		}
+
+		_, err := r.client.UpdateShootCluster(plan.Region.ValueString(), plan.Project.ValueString(), plan.Name.ValueString(), clusterUpdateRequest)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"Error updating shoot cluster",
+				"Could not update cluster, unexpected error: "+err.Error(),
+			)
+			return
+		}
+
+		// Set computed values here
+
 	}
 
-	//shootUpdateResponse, err := r.client.CreateShootCluster(plan.Region.ValueString(), plan.Project.ValueString(), clusterRequest)
-	clusterUpdateResp, err := r.client.UpdateShootCluster(plan.Region.ValueString(), plan.Project.ValueString(), plan.Name.ValueString(), clusterUpdateRequest)
+	tflog.Debug(ctx, "Workergroups changed")
+	wgModify, wgCreate, wgDelete := getCreateModifyDeleteWorkgroups(plan.ProviderDetails.WorkerGroups, currentState.ProviderDetails.WorkerGroups)
+	tflog.Debug(ctx, fmt.Sprintf("modify: %+v, create: %+v, delete: %+v, plan: %+v, state: %+v", wgModify, wgCreate, wgDelete, plan.ProviderDetails.WorkerGroups, currentState.ProviderDetails.WorkerGroups))
+	for _, wg := range wgModify {
+		worker := cleura.WorkerGroupRequest{
+			Worker: cleura.Worker{
+				Minimum: wg.MinNodes,
+				Maximum: wg.MaxNodes,
+				Machine: cleura.MachineDetails{
+					Type: wg.MachineType,
+					Image: cleura.ImageDetails{
+						Name:    wg.ImageName.ValueString(),
+						Version: wg.ImageVersion.ValueString(),
+					},
+				},
+				Volume: cleura.VolumeDetails{
+					Size: wg.VolumeSize.ValueString(),
+				},
+			},
+		}
+		_, err := r.client.UpdateWorkerGroup(plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), wg.WorkerGroupName.ValueString(), worker)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"API Error Updating Worker Group",
+				fmt.Sprintf("... details ... %s", err),
+			)
+			return
+		}
+
+	}
+	for _, wg := range wgCreate {
+		worker := cleura.WorkerGroupRequest{
+			Worker: cleura.Worker{
+				Name:    wg.WorkerGroupName.ValueString(),
+				Minimum: wg.MinNodes,
+				Maximum: wg.MaxNodes,
+				Machine: cleura.MachineDetails{
+					Type: wg.MachineType,
+					Image: cleura.ImageDetails{
+						Name:    wg.ImageName.ValueString(),
+						Version: wg.ImageVersion.ValueString(),
+					},
+				},
+				Volume: cleura.VolumeDetails{
+					Size: wg.VolumeSize.ValueString(),
+				},
+			},
+		}
+		_, err := r.client.AddWorkerGroup(plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), worker)
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"API Error Adding Worker Group",
+				fmt.Sprintf("... details ... %s", err),
+			)
+			return
+		}
+
+	}
+	for _, wg := range wgDelete {
+
+		_, err := r.client.DeleteWorkerGroup(plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), wg.WorkerGroupName.ValueString())
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"API Error Deleting Worker Group",
+				fmt.Sprintf("... details ... %s", err),
+			)
+			return
+		}
+
+	}
+	// Wait cluster ready after update
+	err := clusterReconcileWaiter(r.client, ctx, createTimeout, plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
-			"Error updating shoot cluster",
-			"Could not update cluster, unexpected error: "+err.Error(),
+
+			"API Error Shoot Cluster Resource status check",
+			fmt.Sprintf("... details ... %s", err),
 		)
 		return
 	}
+	clusterUpdateResp, err := r.client.GetShootCluster(plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError(
 
-	// Set computed values here
+			"API Error Shoot Cluster Resource status check",
+			fmt.Sprintf("... details ... %s", err),
+		)
+		return
+	}
+	tflog.Debug(ctx, fmt.Sprintf("response after all: %+v, ", clusterUpdateResp))
+
 	plan.UID = currentState.UID //types.StringValue(clusterUpdateResp.Metadata.UID)
 	plan.Hibernated = types.BoolValue(clusterUpdateResp.Status.Hibernated)
 	plan.LastUpdated = types.StringValue(time.Now().Format(time.RFC850))
 
-	//Required mostly due to WorkerGroupName being computed, better make it required
+	//Required for populating computed values
 	plan.ProviderDetails.WorkerGroups = []workerGroupModel{}
 	for _, worker := range clusterUpdateResp.Spec.Provider.Workers {
 		plan.ProviderDetails.WorkerGroups = append(plan.ProviderDetails.WorkerGroups, workerGroupModel{
@@ -519,16 +636,6 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 		})
 	}
 
-	// Wait cluster ready after update
-	err = clusterReadyOperationWaiter(r.client, ctx, createTimeout, plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError(
-
-			"API Error Shoot Cluster Resource status check",
-			fmt.Sprintf("... details ... %s", err),
-		)
-		return
-	}
 	// Setting the final state
 	diags = resp.State.Set(ctx, plan)
 	resp.Diagnostics.Append(diags...)
@@ -573,5 +680,36 @@ func (r *shootClusterResource) Delete(ctx context.Context, req resource.DeleteRe
 		)
 		return
 	}
+
+}
+
+func getCreateModifyDeleteWorkgroups(wgsPlan []workerGroupModel, wgsState []workerGroupModel) (wgModify []workerGroupModel, wgCreate []workerGroupModel, wgDelete []workerGroupModel) {
+	stateMap := make(map[string]workerGroupModel)
+	for i, wg := range wgsState {
+		stateMap[wg.WorkerGroupName.ValueString()] = wgsState[i]
+	}
+	planMap := make(map[string]workerGroupModel)
+	for i, wg := range wgsPlan {
+		planMap[wg.WorkerGroupName.ValueString()] = wgsPlan[i]
+	}
+	for k, v := range planMap {
+		if _, ok := stateMap[k]; ok {
+			// wg already exists in state, so check it is modified
+			if !reflect.DeepEqual(planMap[k], stateMap[k]) {
+				//wgs are different so use the one from the plan
+				wgModify = append(wgModify, v)
+			}
+		} else {
+			// wg doesn't exist, so add a new workgroup
+			wgCreate = append(wgCreate, v)
+		}
+	}
+	for k, v := range stateMap {
+		if _, ok := planMap[k]; !ok {
+			// wg doesn't exist in plan, so delete it
+			wgDelete = append(wgDelete, v)
+		}
+	}
+	return wgModify, wgCreate, wgDelete
 
 }

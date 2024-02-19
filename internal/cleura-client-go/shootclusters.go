@@ -81,10 +81,74 @@ func (c *Client) UpdateShootCluster(clusterRegion string, clusterProject string,
 	//fmt.Println("Here's the body!: \n", string(body))
 	var createdShootCluster ShootClusterResponse
 	err = json.Unmarshal(body, &createdShootCluster)
-	fmt.Println(string(body))
 	if err != nil {
 		return nil, err
 	}
 
 	return &createdShootCluster, nil
+}
+
+func (c *Client) AddWorkerGroup(clusterName string, clusterRegion string, clusterProject string, workerGroupRequest WorkerGroupRequest) (*ShootClusterResponse, error) {
+	//https://rest.cleura.cloud/gardener/v1/:gardenDomain/shoot/:region/:project/:shoot/worker
+	wgrJsonByte, err := json.Marshal(workerGroupRequest)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/gardener/v1/public/shoot/%s/%s/%s/worker", c.HostURL, clusterRegion, clusterProject, clusterName), strings.NewReader(string(wgrJsonByte)))
+	if err != nil {
+		return nil, err
+	}
+	body, err := c.doRequest(req, 202, nil)
+	if err != nil {
+		return nil, err
+	}
+	var updatedShootCluster ShootClusterResponse
+	err = json.Unmarshal(body, &updatedShootCluster)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updatedShootCluster, nil
+}
+
+func (c *Client) UpdateWorkerGroup(clusterName string, clusterRegion string, clusterProject string, workerName string, workerGroupRequest WorkerGroupRequest) (*ShootClusterResponse, error) {
+	// https://rest.cleura.cloud/gardener/v1/:gardenDomain/shoot/:region/:project/:shoot/worker/:workerName
+	wgrJsonByte, err := json.Marshal(workerGroupRequest)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequest("PUT", fmt.Sprintf("%s/gardener/v1/public/shoot/%s/%s/%s/worker/%s", c.HostURL, clusterRegion, clusterProject, clusterName, workerName), strings.NewReader(string(wgrJsonByte)))
+	if err != nil {
+		return nil, err
+	}
+	body, err := c.doRequest(req, 202, nil)
+	if err != nil {
+		return nil, err
+	}
+	var updatedShootCluster ShootClusterResponse
+	err = json.Unmarshal(body, &updatedShootCluster)
+	if err != nil {
+		return nil, err
+	}
+
+	return &updatedShootCluster, nil
+}
+
+func (c *Client) DeleteWorkerGroup(clusterName string, clusterRegion string, clusterProject string, workerName string) (*ShootClusterResponse, error) {
+	//https://rest.cleura.cloud/gardener/v1/:gardenDomain/shoot/:region/:project/:shoot/worker/:worker
+
+	req, err := http.NewRequest("DELETE", fmt.Sprintf("%s/gardener/v1/public/shoot/%s/%s/%s/worker/%s", c.HostURL, clusterRegion, clusterProject, clusterName, workerName), nil)
+	if err != nil {
+		return nil, err
+	}
+	body, err := c.doRequest(req, 202, nil)
+	if err != nil {
+		return nil, err
+	}
+	var updatedShootCluster ShootClusterResponse
+	err = json.Unmarshal(body, &updatedShootCluster)
+	if err != nil {
+		return nil, err
+	}
+	return &updatedShootCluster, nil
 }
