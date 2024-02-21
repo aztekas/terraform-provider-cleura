@@ -14,7 +14,7 @@ func (c *Client) GetShootCluster(clusterName string, clusterRegion string, clust
 		return nil, err
 	}
 
-	body, err := c.doRequest(req, 200, nil)
+	body, err := c.doRequest(req, 200)
 	if err != nil {
 		return nil, err
 	}
@@ -37,7 +37,7 @@ func (c *Client) CreateShootCluster(clusterRegion string, clusterProject string,
 	if err != nil {
 		return nil, err
 	}
-	body, err := c.doRequest(req, 201, nil)
+	body, err := c.doRequest(req, 201)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +57,7 @@ func (c *Client) DeleteShootCluster(clusterName string, clusterRegion string, cl
 	if err != nil {
 		return "", err
 	}
-	body, err := c.doRequest(req, 202, nil)
+	body, err := c.doRequest(req, 202)
 	if err != nil {
 		return "", err
 	}
@@ -74,7 +74,7 @@ func (c *Client) UpdateShootCluster(clusterRegion string, clusterProject string,
 	if err != nil {
 		return nil, err
 	}
-	body, err := c.doRequest(req, 202, nil)
+	body, err := c.doRequest(req, 202)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func (c *Client) AddWorkerGroup(clusterName string, clusterRegion string, cluste
 	if err != nil {
 		return nil, err
 	}
-	body, err := c.doRequest(req, 202, nil)
+	body, err := c.doRequest(req, 202)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (c *Client) UpdateWorkerGroup(clusterName string, clusterRegion string, clu
 	if err != nil {
 		return nil, err
 	}
-	body, err := c.doRequest(req, 202, nil)
+	body, err := c.doRequest(req, 202)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func (c *Client) DeleteWorkerGroup(clusterName string, clusterRegion string, clu
 	if err != nil {
 		return nil, err
 	}
-	body, err := c.doRequest(req, 202, nil)
+	body, err := c.doRequest(req, 202)
 	if err != nil {
 		return nil, err
 	}

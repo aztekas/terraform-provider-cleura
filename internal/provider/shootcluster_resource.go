@@ -107,9 +107,15 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 			},
 			"project": schema.StringAttribute{
 				Required: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"region": schema.StringAttribute{
 				Required: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
 			},
 			"kubernetes_version": schema.StringAttribute{
 				Required: true,
@@ -134,18 +140,19 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 						Computed: true,
 						Default:  stringdefault.StaticString("ext-net"),
 					},
-					// "workers_cidr": schema.StringAttribute{
-					// 	Optional: true,
-					// },
 					"worker_groups": schema.ListNestedAttribute{
 						Required: true,
 						NestedObject: schema.NestedAttributeObject{
 							Attributes: map[string]schema.Attribute{
 								"worker_group_name": schema.StringAttribute{
 									Required: true,
-									// PlanModifiers: []planmodifier.String{
-									// 	stringplanmodifier.RequiresReplace(),
-									// },
+									PlanModifiers: []planmodifier.String{
+										stringplanmodifier.RequiresReplaceIf(
+											func(ctx context.Context, sr planmodifier.StringRequest, rrifr *stringplanmodifier.RequiresReplaceIfFuncResponse) {
+												rrifr.RequiresReplace = !sr.StateValue.IsNull()
+											},
+											"Requires replace only if modifying existing value", ""),
+									},
 								},
 								"min_nodes": schema.Int64Attribute{
 									Required: true,

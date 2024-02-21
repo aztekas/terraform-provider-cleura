@@ -27,9 +27,6 @@ website/node_modules
 .vscode
 website/vendor
 
-# Tf secrets
-examples/shoots/provider.tf
-
 # Test exclusions
 !command/test-fixtures/**/*.tfstate
 !command/test-fixtures/**/.terraform/

@@ -73,12 +73,31 @@ func NewClient(host, username, password *string) (*Client, error) {
 	return &c, nil
 }
 
-func (c *Client) doRequest(req *http.Request, successResponse int, authToken *string) ([]byte, error) {
-	token := c.Token
-
-	if authToken != nil {
-		token = *authToken
+func NewClientNoPassword(host, username, token *string) (*Client, error) {
+	c := Client{
+		HTTPClient: &http.Client{Timeout: 600 * time.Second},
+		// Default API URL
+		HostURL: HostURL,
 	}
+
+	if host != nil {
+		c.HostURL = *host
+	}
+
+	// If username or password not provided, return empty client
+	if username == nil || token == nil {
+		return &c, nil
+	}
+	c.Auth = AuthStruct{
+		Username: *username,
+	}
+
+	c.Token = *token
+	return &c, nil
+}
+
+func (c *Client) doRequest(req *http.Request, successResponse int) ([]byte, error) {
+	token := c.Token
 
 	req.Header.Set("X-AUTH-LOGIN", c.Auth.Username)
 	req.Header.Set("X-AUTH-TOKEN", token)

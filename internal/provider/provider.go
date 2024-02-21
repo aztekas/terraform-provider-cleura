@@ -23,7 +23,7 @@ var (
 type cleuraProviderModel struct {
 	Host     types.String `tfsdk:"host"`
 	Username types.String `tfsdk:"username"`
-	Password types.String `tfsdk:"password"`
+	Token    types.String `tfsdk:"token"`
 }
 
 // New is a helper function to simplify provider server and testing implementation.
@@ -59,7 +59,7 @@ func (p *cleuraProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 			"username": schema.StringAttribute{
 				Optional: true,
 			},
-			"password": schema.StringAttribute{
+			"token": schema.StringAttribute{
 				Optional:  true,
 				Sensitive: true,
 			},
@@ -86,7 +86,7 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 			path.Root("host"),
 			"Unknown Cleura API Host",
 			"The provider cannot create the Cleura API client as there is an unknown configuration value for the Cleura API host. "+
-				"Either target apply the source of the value first, set the value statically in the configuration, or use the Cleura_HOST environment variable.",
+				"Either target apply the source of the value first, set the value statically in the configuration, or use the CLEURA_API_HOST environment variable.",
 		)
 	}
 
@@ -99,12 +99,12 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		)
 	}
 
-	if config.Password.IsUnknown() {
+	if config.Token.IsUnknown() {
 		resp.Diagnostics.AddAttributeError(
-			path.Root("password"),
-			"Unknown Cleura API Password",
-			"The provider cannot create the Cleura API client as there is an unknown configuration value for the Cleura API password. "+
-				"Either target apply the source of the value first, set the value statically in the configuration, or use the CLEURA_API_PASSWORD environment variable.",
+			path.Root("token"),
+			"Unknown Cleura API Username",
+			"The provider cannot create the Cleura API client as there is an unknown configuration value for the Cleura API username. "+
+				"Either target apply the source of the value first, set the value statically in the configuration, or use the CLEURA_API_USERNAME environment variable.",
 		)
 	}
 
@@ -117,7 +117,7 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 
 	host := os.Getenv("CLEURA_API_HOST")
 	username := os.Getenv("CLEURA_API_USERNAME")
-	password := os.Getenv("CLEURA_API_PASSWORD")
+	token := os.Getenv("CLEURA_API_TOKEN")
 
 	if !config.Host.IsNull() {
 		host = config.Host.ValueString()
@@ -127,8 +127,8 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		username = config.Username.ValueString()
 	}
 
-	if !config.Password.IsNull() {
-		password = config.Password.ValueString()
+	if !config.Token.IsNull() {
+		token = config.Token.ValueString()
 	}
 
 	// If any of the expected configurations are missing, return
@@ -154,12 +154,12 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 		)
 	}
 
-	if password == "" {
+	if token == "" {
 		resp.Diagnostics.AddAttributeError(
-			path.Root("password"),
-			"Missing Cleura API Password",
-			"The provider cannot create the Cleura API client as there is a missing or empty value for the Cleura API password. "+
-				"Set the password value in the configuration or use the CLEURA_API_PASSWORD environment variable. "+
+			path.Root("token"),
+			"Missing Cleura API TOKEN",
+			"The provider cannot create the Cleura API client as there is a missing or empty value for the Cleura API token. "+
+				"Set the token value in the configuration or use the CLEURA_API_TOKEN environment variable. "+
 				"If either is already set, ensure the value is not empty.",
 		)
 	}
@@ -170,13 +170,13 @@ func (p *cleuraProvider) Configure(ctx context.Context, req provider.ConfigureRe
 
 	ctx = tflog.SetField(ctx, "cleura_host", host)
 	ctx = tflog.SetField(ctx, "cleura_username", username)
-	ctx = tflog.SetField(ctx, "cleura_password", password)
+	ctx = tflog.SetField(ctx, "cleura_token", token)
 
-	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "cleura_password")
+	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "cleura_token")
 	tflog.Debug(ctx, "Creating Cleura client")
 
 	// Create a new Cleura client using the configuration values
-	client, err := cleura.NewClient(&host, &username, &password)
+	client, err := cleura.NewClientNoPassword(&host, &username, &token)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create Cleura API Client",

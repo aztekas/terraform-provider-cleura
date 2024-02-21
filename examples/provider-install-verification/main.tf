@@ -8,4 +8,4 @@ terraform {
 
 provider "cleura" {}
 
-data "cleura_shoots" "example" {}
+data "cleura_shoot_cluster" "example" {}
