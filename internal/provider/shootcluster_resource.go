@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -9,12 +10,14 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
+	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
 	"github.com/zaikinlv/terraform-provider-cleura/internal/cleura-client-go"
@@ -184,7 +187,8 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 				},
 			}, // provider_details end here
 			"hibernation_schedules": schema.ListNestedAttribute{
-				Optional: true,
+				Optional:   true,
+				Validators: []validator.List{listvalidator.SizeAtLeast(1)},
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"start": schema.StringAttribute{
@@ -283,6 +287,7 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 		},
 		)
 	}
+	tflog.Debug(ctx, fmt.Sprintf("Here's hibernation schedules: %v", hibernationSchedules))
 
 	//------------------------------
 	clusterRequest := cleura.ShootClusterRequest{
@@ -297,11 +302,20 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 				},
 				Workers: clusterWorkers,
 			},
-			Hibernation: &cleura.HibernationSchedules{
-				HibernationSchedules: hibernationSchedules,
-			},
 		},
 	}
+	// Hibernation must be set to nil(or omitted in clusterRequest) if no schedules defined in config
+	if len(hibernationSchedules) > 0 {
+		clusterRequest.Shoot.Hibernation.HibernationSchedules = hibernationSchedules
+	}
+
+	//Debug clusterRequest content
+	jsonByte, err := json.Marshal(clusterRequest)
+	if err != nil {
+		tflog.Debug(ctx, fmt.Sprintf("error from marshaling clusterRequest: %v", err))
+	}
+	tflog.Debug(ctx, fmt.Sprintf("clusterRequest: %v", string(jsonByte)))
+
 	shootResponse, err := r.client.CreateShootCluster(plan.Region.ValueString(), plan.Project.ValueString(), clusterRequest)
 	if err != nil {
 		resp.Diagnostics.AddError(
@@ -419,7 +433,6 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 	tflog.Debug(ctx, "XXX_READ")
 	// Get current state
 	var state shootClusterResourceModel
-
 	diags := req.State.Get(ctx, &state)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -434,6 +447,7 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 		)
 		return
 	}
+	tflog.Debug(ctx, fmt.Sprintf("shootResponse: %+v", shootResponse))
 
 	state.Name = types.StringValue(shootResponse.Metadata.Name)
 	state.UID = types.StringValue(shootResponse.Metadata.UID)
@@ -453,13 +467,17 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 		})
 
 	}
-	state.HibernationSchedules = []hibernationScheduleModel{}
+	tflog.Debug(ctx, fmt.Sprintf("Hibschedules current state: %v", state.HibernationSchedules))
+	var hibSchedules []hibernationScheduleModel
+
 	for _, schedule := range shootResponse.Spec.Hibernation.HibernationResponseSchedules {
-		state.HibernationSchedules = append(state.HibernationSchedules, hibernationScheduleModel{
+		hibSchedules = append(hibSchedules, hibernationScheduleModel{
 			Start: types.StringValue(schedule.Start),
 			End:   types.StringValue(schedule.End),
 		})
 	}
+	state.HibernationSchedules = hibSchedules
+	tflog.Debug(ctx, fmt.Sprintf("Hibschedules after state: %v", state.HibernationSchedules))
 
 	// Set refreshed state
 	diags = resp.State.Set(ctx, &state)
@@ -492,10 +510,10 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
-	if !reflect.DeepEqual(plan.HibernationSchedules, currentState.HibernationSchedules) {
-		tflog.Debug(ctx, "Hibernation schedules changed")
+	if !reflect.DeepEqual(plan.HibernationSchedules, currentState.HibernationSchedules) || !reflect.DeepEqual(plan.K8sVersion, currentState.K8sVersion) {
+		tflog.Debug(ctx, "Hibernation schedules or K8s version changed")
 
-		var hibernationSchedules []cleura.HibernationSchedule
+		hibernationSchedules := []cleura.HibernationSchedule{}
 		for _, schedule := range plan.HibernationSchedules {
 			hibernationSchedules = append(hibernationSchedules, cleura.HibernationSchedule{
 				Start: schedule.Start.ValueString(),
@@ -522,8 +540,6 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 			)
 			return
 		}
-
-		// Set computed values here
 
 	}
 
@@ -635,13 +651,16 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 			MaxNodes:        worker.Maximum,
 		})
 	}
-	plan.HibernationSchedules = []hibernationScheduleModel{}
+
+	var hibSchedules []hibernationScheduleModel //nil
+
 	for _, schedule := range clusterUpdateResp.Spec.Hibernation.HibernationResponseSchedules {
-		plan.HibernationSchedules = append(plan.HibernationSchedules, hibernationScheduleModel{
+		hibSchedules = append(hibSchedules, hibernationScheduleModel{
 			Start: types.StringValue(schedule.Start),
 			End:   types.StringValue(schedule.End),
 		})
 	}
+	plan.HibernationSchedules = hibSchedules // set nil if no schedule present, slice with schedules if present
 
 	// Setting the final state
 	diags = resp.State.Set(ctx, plan)

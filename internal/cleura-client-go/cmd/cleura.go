@@ -49,6 +49,8 @@ func main() {
 							Usage:   "Cleura API host",
 							Value:   "https://rest.cleura.cloud",
 						},
+						//Add interactive mode
+						//Add two factor mode
 					},
 				},
 				{
@@ -189,6 +191,7 @@ func tokenGet(c *cli.Context) error {
 		username = c.String("username")
 		password = c.String("password")
 	}
+	//Add option to supply u&p via console
 	if username == "" || password == "" {
 		return errors.New("error: password and username must be supplied")
 	}
@@ -198,7 +201,7 @@ func tokenGet(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("export CLEURA_API_TOKEN=%v\n", client.Token)
+	fmt.Printf("export CLEURA_API_TOKEN=%v\nexport CLEURA_API_USERNAME=%v\nexport CLEURA_API_HOST=%v\n", client.Token, client.Auth.Username,c.String("api-host"))
 	return nil
 
 }
