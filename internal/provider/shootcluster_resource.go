@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -28,6 +30,7 @@ var (
 	_ resource.Resource                   = &shootClusterResource{}
 	_ resource.ResourceWithConfigure      = &shootClusterResource{}
 	_ resource.ResourceWithValidateConfig = &shootClusterResource{}
+	_ resource.ResourceWithImportState    = &shootClusterResource{}
 )
 
 // NewShootClusterResource is a helper function to simplify the provider implementation.
@@ -738,4 +741,76 @@ func getCreateModifyDeleteWorkgroups(wgsPlan []workerGroupModel, wgsState []work
 	}
 	return wgModify, wgCreate, wgDelete
 
+}
+
+func (r *shootClusterResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
+	idParts := strings.Split(req.ID, ",")
+	var state shootClusterResourceModel
+	tflog.Debug(ctx, fmt.Sprintf("idparts: %v", idParts))
+	if len(idParts) != 3 || idParts[0] == "" || idParts[1] == "" || idParts[2] == "" {
+		resp.Diagnostics.AddError(
+			"Unexpected Import Identifier",
+			fmt.Sprintf("Expected import identifier with format: Name,Region,Project_id. Got: %q", req.ID),
+		)
+		return
+	}
+	state.Name = types.StringValue(idParts[0])
+	state.Region = types.StringValue(idParts[1])
+	state.Project = types.StringValue(idParts[2])
+
+	// Get refreshed shoot cluster from cleura
+	shootResponse, err := r.client.GetShootCluster(idParts[0], idParts[1], idParts[2])
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Error Reading Shoot cluster",
+			"Could not read Shoot cluster name "+idParts[0]+": "+err.Error(),
+		)
+		return
+	}
+	tflog.Debug(ctx, fmt.Sprintf("shootResponse: %+v", shootResponse))
+
+	state.UID = types.StringValue(shootResponse.Metadata.UID)
+	state.Hibernated = types.BoolValue(shootResponse.Status.Hibernated)
+	state.K8sVersion = types.StringValue(shootResponse.Spec.Kubernetes.Version)
+	state.ProviderDetails.FloatingPoolName = types.StringValue(shootResponse.Spec.Provider.InfrastructureConfig.FloatingPoolName)
+
+	state.ProviderDetails.WorkerGroups = []workerGroupModel{}
+	for _, worker := range shootResponse.Spec.Provider.Workers {
+		state.ProviderDetails.WorkerGroups = append(state.ProviderDetails.WorkerGroups, workerGroupModel{
+			WorkerGroupName: types.StringValue(worker.Name),
+			MachineType:     worker.Machine.Type,
+			ImageName:       types.StringValue(worker.Machine.Image.Name),
+			ImageVersion:    types.StringValue(worker.Machine.Image.Version),
+			VolumeSize:      types.StringValue(worker.Volume.Size),
+			MinNodes:        worker.Minimum,
+			MaxNodes:        worker.Maximum,
+		})
+
+	}
+	tflog.Debug(ctx, fmt.Sprintf("Hibschedules current state: %v", state.HibernationSchedules))
+	var hibSchedules []hibernationScheduleModel
+
+	for _, schedule := range shootResponse.Spec.Hibernation.HibernationResponseSchedules {
+		hibSchedules = append(hibSchedules, hibernationScheduleModel{
+			Start: types.StringValue(schedule.Start),
+			End:   types.StringValue(schedule.End),
+		})
+	}
+	state.HibernationSchedules = hibSchedules
+	tflog.Debug(ctx, fmt.Sprintf("Hibschedules after state: %v", state.HibernationSchedules))
+
+	state.Timeouts = timeouts.Value{
+		Object: types.ObjectNull(map[string]attr.Type{
+			"create": types.StringType,
+			"delete": types.StringType,
+			"update": types.StringType,
+		}),
+	}
+
+	// Set refreshed state
+	diags := resp.State.Set(ctx, &state)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 }

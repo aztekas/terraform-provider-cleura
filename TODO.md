@@ -12,9 +12,12 @@
 1. [ ] Set Github Actions workflow for building provider
 1. [ ] Publish provider somewhere or document local usage
 1. [ ] Move Cleura go client to a separate repository
-1. [ ] Add testing
-1. [ ] Change of all fields except presented here: <https://apidoc.cleura.cloud/#api-Gardener-UpdateShoot>  must lead to cluster re-creation
+1. [x] Add basic testing
 1. [ ] Add possibility to provide token string to provider configuration. Will require getting the correct token outside terraform.
+1. [ ] Add Import functionality (for moving existing resources into terraform state)
+1. [ ] Add maintenance window functionality
+1. [ ] Do not allow empty worker_groups list, same way as for hibernation schedules (via list validator)
+1. [ ] Add datasource for projects.
 
 ## BUGS or FEATURES
 
