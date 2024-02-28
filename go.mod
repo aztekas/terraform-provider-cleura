@@ -1,4 +1,4 @@
-module github.com/zaikinlv/terraform-provider-cleura
+module github.com/aztekas/terraform-provider-cleura
 
 go 1.21.5
 

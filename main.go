@@ -8,7 +8,7 @@ import (
 	"flag"
 	"log"
 
-	"github.com/zaikinlv/terraform-provider-cleura/internal/provider"
+	"github.com/aztekas/terraform-provider-cleura/internal/provider"
 
 	"github.com/hashicorp/terraform-plugin-framework/providerserver"
 )

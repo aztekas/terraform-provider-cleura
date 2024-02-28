@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/aztekas/terraform-provider-cleura/internal/cleura-client-go"
 	"github.com/urfave/cli/v2"
-	"github.com/zaikinlv/terraform-provider-cleura/internal/cleura-client-go"
 )
 
 func main() {
@@ -201,7 +201,7 @@ func tokenGet(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("export CLEURA_API_TOKEN=%v\nexport CLEURA_API_USERNAME=%v\nexport CLEURA_API_HOST=%v\n", client.Token, client.Auth.Username,c.String("api-host"))
+	fmt.Printf("export CLEURA_API_TOKEN=%v\nexport CLEURA_API_USERNAME=%v\nexport CLEURA_API_HOST=%v\n", client.Token, client.Auth.Username, c.String("api-host"))
 	return nil
 
 }

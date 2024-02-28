@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aztekas/terraform-provider-cleura/internal/cleura-client-go"
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
@@ -22,7 +23,6 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/hashicorp/terraform-plugin-log/tflog"
-	"github.com/zaikinlv/terraform-provider-cleura/internal/cleura-client-go"
 )
 
 // Ensure the implementation satisfies the expected interfaces.
