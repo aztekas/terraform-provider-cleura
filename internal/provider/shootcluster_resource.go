@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aztekas/terraform-provider-cleura/internal/cleura-client-go"
+	"github.com/aztekas/cleura-client-go"
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
