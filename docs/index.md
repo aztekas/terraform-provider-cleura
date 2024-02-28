@@ -16,7 +16,7 @@ description: |-
 provider "cleura" {
   host     = "https://rest.cleura.cloud"
   username = "username"
-  password = "password"
+  token    = "yourtokenstring"
 }
 ```
 
@@ -26,5 +26,5 @@ provider "cleura" {
 ### Optional
 
 - `host` (String)
-- `password` (String, Sensitive)
+- `token` (String, Sensitive)
 - `username` (String)
