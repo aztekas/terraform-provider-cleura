@@ -366,7 +366,7 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 
 func clusterReconcileWaiter(client *cleura.Client, ctx context.Context, maxRetryTime time.Duration, clusterName string, clusterRegion string, clusterProject string) error {
 	b := backoff.NewExponentialBackOff()
-	b.MaxElapsedTime = 20 * time.Minute
+	b.MaxElapsedTime = maxRetryTime - 1*time.Minute
 	b.MaxInterval = 1 * time.Minute
 	b.Multiplier = 2
 	operation := func() error {
