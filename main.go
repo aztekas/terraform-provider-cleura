@@ -27,6 +27,7 @@ var (
 	// these will be set by the goreleaser configuration
 	// to appropriate values for the compiled binary.
 	version string = "dev"
+	address string = "app.terraform.io/accelerate-at-iver/cleura"
 
 	// goreleaser can pass other information to the main package, such as the specific commit
 	// https://goreleaser.com/cookbooks/using-main.version/
@@ -40,7 +41,7 @@ func main() {
 
 	opts := providerserver.ServeOpts{
 		// TODO: Update this string with the published name of your provider.
-		Address: "aztek.no/aai/cleura",
+		Address: address,
 		Debug:   debug,
 	}
 

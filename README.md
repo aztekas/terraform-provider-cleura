@@ -38,7 +38,7 @@ In order to create resources with `dev` version of cleura provider, you have to 
     provider_installation {
 
         dev_overrides {
-            "aztek.no/aai/cleura" = "$GOPATH/bin" # set path to provider binary here
+            "app.terraform.io/accelerate-at-iver/cleura" = "$GOPATH/bin" # set path to provider binary here
         }
 
         # For all other providers, install them directly from their origin provider
@@ -58,7 +58,7 @@ In order to create resources with `dev` version of cleura provider, you have to 
     terraform {
         required_providers {
             cleura = {
-                source = "aztek.no/aai/cleura"
+                source = "app.terraform.io/accelerate-at-iver/cleura"
             }
         }
     }

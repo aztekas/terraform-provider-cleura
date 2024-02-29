@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     cleura = {
-      source = "aztek.no/aai/cleura"
+      source = "app.terraform.io/accelerate-at-iver/cleura"
     }
   }
 }
