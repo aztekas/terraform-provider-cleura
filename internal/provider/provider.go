@@ -4,7 +4,7 @@ import (
 	"context"
 	"os"
 
-	"github.com/aztekas/cleura-client-go"
+	"github.com/aztekas/cleura-client-go/pkg/api/cleura"
 
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/path"

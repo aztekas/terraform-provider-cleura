@@ -19,8 +19,8 @@ github.com/apparentlymart/go-textseg/v15 v15.0.0 h1:uYvfpb3DyLSCGWnctWKGj857c6ew
 github.com/apparentlymart/go-textseg/v15 v15.0.0/go.mod h1:K8XmNZdhEBkdlyDdvbmmsvpAG721bKi0joRfFdHIWJ4=
 github.com/armon/go-radix v1.0.0 h1:F4z6KzEeeQIMeLFa97iZU6vupzoecKdU5TX24SNppXI=
 github.com/armon/go-radix v1.0.0/go.mod h1:ufUuZ+zHj4x4TnLV4JWEpy2hxWSpsRywHrMgIH9cCH8=
-github.com/aztekas/cleura-client-go v0.0.0-20240228092006-4cfb518a3e24 h1:8PPglE+odcGtJ1E9foVaO1DicMd9kDEKYqCo8AV7DFk=
-github.com/aztekas/cleura-client-go v0.0.0-20240228092006-4cfb518a3e24/go.mod h1:vdMO/g7R5wmdyhX/of6drqGg5p70/jvoTRTPd0eM3as=
+github.com/aztekas/cleura-client-go v0.0.0-20240229090709-0d7f45f1a7ef h1:qHtrQvxqvl+mgens++fjdYGrx7WREQH2cb5GXv8irGA=
+github.com/aztekas/cleura-client-go v0.0.0-20240229090709-0d7f45f1a7ef/go.mod h1:vdMO/g7R5wmdyhX/of6drqGg5p70/jvoTRTPd0eM3as=
 github.com/bgentry/speakeasy v0.1.0 h1:ByYyxL9InA1OWqxJqqp2A5pYHUrCiAL6K3J+LKSsQkY=
 github.com/bgentry/speakeasy v0.1.0/go.mod h1:+zsyZBPWlz7T6j88CTgSN5bM796AkVf0kBD4zp0CCIs=
 github.com/bufbuild/protocompile v0.4.0 h1:LbFKd2XowZvQ/kajzguUp2DC9UEIQhIq77fZZlaQsNA=
