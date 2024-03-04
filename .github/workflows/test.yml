@@ -1,0 +1,17 @@
+name: Test
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test private workflow
+        id: test_wf
+        uses: aztekas/gha-publish-provider@main
+        with:
+          greet: "test my test"

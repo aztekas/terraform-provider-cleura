@@ -6,20 +6,23 @@
 1. [x] Allow possibility to omit specification of worker group name.
 1. [x] Check how/if timeout for `create` and `delete` work.
 1. [x] Add APIError struct to parse errors from Cleura API
-1. [ ] Check/read what happens when user presses Ctrl+c during the ongoing operation create/delete.
+1. [x] Check/read what happens when user presses Ctrl+c during the ongoing operation create/delete. Operation is not reverted.
 1. [x] Implement Update operation
 1. [x] Clean up the repo (scaffolding stuff)
-1. [ ] Set Github Actions workflow for building provider
-1. [ ] Publish provider somewhere or document local usage
+1. [x] Set Github Actions workflow for building provider
+1. [x] Publish provider somewhere or document local usage
 1. [x] Move Cleura go client to a separate repository
 1. [x] Add basic testing
 1. [x] Add possibility to provide token string to provider configuration. Will require getting the correct token outside terraform.
 1. [x] Add Import functionality (for moving existing resources into terraform state)
 1. [ ] Add maintenance window functionality
 1. [ ] Do not allow empty worker_groups list, same way as for hibernation schedules (via list validator)
-1. [ ] Add datasource for projects.
+1. [x] Add datasource for projects. Openstack provider can be used here.
+1. [ ] (docs) Add description fields to the shoot cluster resource schema.
+1. [ ] (docs) Add description fields to the shoot cluster datasource schema.
+1. [ ] (docs) Add description fields to the provider schema
 
 ## BUGS or FEATURES
 
 1. Got 409 error when updating `image_version` on all worker groups simultaneously. Not repeatable error.
-1. (API) If adding several hibernation schedules it is not possible to remove one from the list.
+1. (API) If adding several hibernation schedules it is not possible to remove one from the list. API errors with internal error, same behavior via UI console.
