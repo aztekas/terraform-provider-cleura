@@ -54,12 +54,15 @@ func (p *cleuraProvider) Schema(_ context.Context, _ provider.SchemaRequest, res
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
 			"host": schema.StringAttribute{
+				Description: "Cleura API hostname. Takes CLEURA_API_HOST environment variable if not set.",
 				Optional: true,
 			},
 			"username": schema.StringAttribute{
+				Description: "Cleura cloud username. Takes CLEURA_API_USERNAME environment variable if not set.",
 				Optional: true,
 			},
 			"token": schema.StringAttribute{
+				Description: "API token used for communication with cleura cloud provider API. Takes CLEURA_API_TOKEN environment variable if not set.",
 				Optional:  true,
 				Sensitive: true,
 			},

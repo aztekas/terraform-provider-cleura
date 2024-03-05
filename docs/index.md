@@ -25,6 +25,6 @@ provider "cleura" {
 
 ### Optional
 
-- `host` (String)
-- `token` (String, Sensitive)
-- `username` (String)
+- `host` (String) Cleura API hostname. Takes CLEURA_API_HOST environment variable if not set.
+- `token` (String, Sensitive) API token used for communication with cleura cloud provider API. Takes CLEURA_API_TOKEN environment variable if not set.
+- `username` (String) Cleura cloud username. Takes CLEURA_API_USERNAME environment variable if not set.

@@ -64,21 +64,27 @@ func (d *shootClusterDataSource) Schema(_ context.Context, _ datasource.SchemaRe
 
 			"uid": schema.StringAttribute{
 				Computed: true,
+				Description: "Unique cluster identifier.",
 			},
 			"project": schema.StringAttribute{
 				Required: true,
+				Description: "Project where shoot cluster is created.",
 			},
 			"name": schema.StringAttribute{
 				Required: true,
+				Description: "Shoot cluster name.",
 			},
 			"region": schema.StringAttribute{
 				Required: true,
+				Description: "Shoot cluster region.",
 			},
 			"hibernated": schema.BoolAttribute{
 				Computed: true,
+				Description: "Current hibernation state of the cluster",
 			},
 			"advertised_addresses": schema.ListNestedAttribute{
 				Computed: true,
+				Description: "Advertised cluster addresses",
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"name": schema.StringAttribute{
@@ -92,6 +98,7 @@ func (d *shootClusterDataSource) Schema(_ context.Context, _ datasource.SchemaRe
 			},
 			"conditions": schema.ListNestedAttribute{
 				Computed: true,
+				Description: "Shoot cluster statuses",
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"type": schema.StringAttribute{

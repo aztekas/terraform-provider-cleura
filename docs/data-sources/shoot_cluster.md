@@ -29,16 +29,16 @@ output "name" {
 
 ### Required
 
-- `name` (String)
-- `project` (String)
-- `region` (String)
+- `name` (String) Shoot cluster name.
+- `project` (String) Project where shoot cluster is created.
+- `region` (String) Shoot cluster region.
 
 ### Read-Only
 
-- `advertised_addresses` (Attributes List) (see [below for nested schema](#nestedatt--advertised_addresses))
-- `conditions` (Attributes List) (see [below for nested schema](#nestedatt--conditions))
-- `hibernated` (Boolean)
-- `uid` (String)
+- `advertised_addresses` (Attributes List) Advertised cluster addresses (see [below for nested schema](#nestedatt--advertised_addresses))
+- `conditions` (Attributes List) Shoot cluster statuses (see [below for nested schema](#nestedatt--conditions))
+- `hibernated` (Boolean) Current hibernation state of the cluster
+- `uid` (String) Unique cluster identifier.
 
 <a id="nestedatt--advertised_addresses"></a>
 ### Nested Schema for `advertised_addresses`

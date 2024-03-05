@@ -64,19 +64,16 @@ func (r *shootClusterResource) Configure(_ context.Context, req resource.Configu
 
 func (r *shootClusterResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
 	var config shootClusterResourceModel
-
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
-
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
 	//No validation if no hibernation schedules defined
 	if config.HibernationSchedules == nil {
 		return
 	}
 
-	// Error is either is null
+	// Error if either start or end is null
 	for i, schedule := range config.HibernationSchedules {
 		if schedule.Start.IsNull() || schedule.End.IsNull() {
 			resp.Diagnostics.AddAttributeError(
@@ -110,48 +107,60 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
+				Description: "Name of the shoot cluster",
 			},
 			"project": schema.StringAttribute{
 				Required: true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
+				Description: "Id of the project where cluster will be created.",
 			},
 			"region": schema.StringAttribute{
 				Required: true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.RequiresReplace(),
 				},
+				Description: "One of available regions for the cluster. Depends on the enabled domains in the project",
 			},
 			"kubernetes_version": schema.StringAttribute{
-				Required: true,
+				Required:    true,
+				Description: "One of the currently available Kubernetes versions",
 			},
 			"last_updated": schema.StringAttribute{
-				Computed: true,
+				Computed:    true,
+				Description: "Set local time when cluster resource is created and each time cluster is updated.",
 			},
 			"uid": schema.StringAttribute{
 				Computed: true,
 				PlanModifiers: []planmodifier.String{
 					stringplanmodifier.UseStateForUnknown(),
 				},
+				Description: "Unique cluster ID",
 			},
 			"hibernated": schema.BoolAttribute{
-				Computed: true,
+				Computed:    true,
+				Description: "Show current hibernation state of the cluster",
 			},
 			"provider_details": schema.SingleNestedAttribute{
-				Required: true,
+				Required:    true,
+				Description: "Cluster details.",
 				Attributes: map[string]schema.Attribute{
 					"floating_pool_name": schema.StringAttribute{
-						Optional: true,
-						Computed: true,
-						Default:  stringdefault.StaticString("ext-net"),
+						Optional:    true,
+						Computed:    true,
+						Default:     stringdefault.StaticString("ext-net"),
+						Description: "The name of the external network to connect to. Defaults to 'ext-net'.",
 					},
 					"worker_groups": schema.ListNestedAttribute{
-						Required: true,
+						Required:    true,
+						Description: "Defines the worker groups",
+						Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
 						NestedObject: schema.NestedAttributeObject{
 							Attributes: map[string]schema.Attribute{
 								"worker_group_name": schema.StringAttribute{
-									Required: true,
+									Required:    true,
+									Description: "Worker group name. Max 6 lowercase alphanumeric characters.",
 									PlanModifiers: []planmodifier.String{
 										stringplanmodifier.RequiresReplaceIf(
 											func(ctx context.Context, sr planmodifier.StringRequest, rrifr *stringplanmodifier.RequiresReplaceIfFuncResponse) {
@@ -161,28 +170,34 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 									},
 								},
 								"min_nodes": schema.Int64Attribute{
-									Required: true,
+									Required:    true,
+									Description: "The minimum number of worker nodes in the worker group.",
 								},
 								"max_nodes": schema.Int64Attribute{
-									Required: true,
+									Required:    true,
+									Description: "The maximum number of worker nodes in the worker group",
 								},
 								"machine_type": schema.StringAttribute{
-									Required: true,
+									Required:    true,
+									Description: "The name of the desired type/flavor of the worker nodes",
 								},
 								"image_name": schema.StringAttribute{
-									Computed: true,
-									Optional: true,
-									Default:  stringdefault.StaticString("gardenlinux"),
+									Computed:    true,
+									Optional:    true,
+									Description: "The name of the image of the worker nodes",
+									Default:     stringdefault.StaticString("gardenlinux"),
 								},
 								"image_version": schema.StringAttribute{
-									Computed: true,
-									Optional: true,
-									Default:  stringdefault.StaticString("1312.2.0"),
+									Computed:    true,
+									Optional:    true,
+									Description: "The version of the image of the worker nodes",
+									Default:     stringdefault.StaticString("1312.2.0"),
 								},
 								"worker_node_volume_size": schema.StringAttribute{
-									Computed: true,
-									Optional: true,
-									Default:  stringdefault.StaticString("50Gi"),
+									Computed:    true,
+									Optional:    true,
+									Description: "The desired size of the volume used for the worker nodes. Example '50Gi'",
+									Default:     stringdefault.StaticString("50Gi"),
 								},
 							},
 						},
@@ -190,15 +205,18 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 				},
 			}, // provider_details end here
 			"hibernation_schedules": schema.ListNestedAttribute{
-				Optional:   true,
-				Validators: []validator.List{listvalidator.SizeAtLeast(1)},
+				Optional:    true,
+				Description: "An array containing desired hibernation schedules",
+				Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
 						"start": schema.StringAttribute{
-							Optional: true,
+							Optional:    true,
+							Description: "The time when the hibernation should start in Cron time format",
 						},
 						"end": schema.StringAttribute{
-							Optional: true,
+							Optional:    true,
+							Description: "The time when the hibernation should end in Cron time format",
 						},
 					},
 				},
@@ -361,7 +379,6 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
 }
 
 func clusterReconcileWaiter(client *cleura.Client, ctx context.Context, maxRetryTime time.Duration, clusterName string, clusterRegion string, clusterProject string) error {
@@ -488,7 +505,6 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
 }
 
 // Update updates the resource and sets the updated Terraform state on success.
@@ -504,7 +520,6 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	if resp.Diagnostics.HasError() {
 		return
 	}
-
 	createTimeout, diags := plan.Timeouts.Update(ctx, 45*time.Minute)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -709,7 +724,6 @@ func (r *shootClusterResource) Delete(ctx context.Context, req resource.DeleteRe
 		)
 		return
 	}
-
 }
 
 func getCreateModifyDeleteWorkgroups(wgsPlan []workerGroupModel, wgsState []workerGroupModel) (wgModify []workerGroupModel, wgCreate []workerGroupModel, wgDelete []workerGroupModel) {
@@ -785,7 +799,6 @@ func (r *shootClusterResource) ImportState(ctx context.Context, req resource.Imp
 			MinNodes:        worker.Minimum,
 			MaxNodes:        worker.Maximum,
 		})
-
 	}
 	tflog.Debug(ctx, fmt.Sprintf("Hibschedules current state: %v", state.HibernationSchedules))
 	var hibSchedules []hibernationScheduleModel

@@ -53,49 +53,49 @@ output "cluster" {
 
 ### Required
 
-- `kubernetes_version` (String)
-- `name` (String)
-- `project` (String)
-- `provider_details` (Attributes) (see [below for nested schema](#nestedatt--provider_details))
-- `region` (String)
+- `kubernetes_version` (String) One of the currently available Kubernetes versions
+- `name` (String) Name of the shoot cluster
+- `project` (String) Id of the project where cluster will be created.
+- `provider_details` (Attributes) Cluster details. (see [below for nested schema](#nestedatt--provider_details))
+- `region` (String) One of available regions for the cluster. Depends on the enabled domains in the project
 
 ### Optional
 
-- `hibernation_schedules` (Attributes List) (see [below for nested schema](#nestedatt--hibernation_schedules))
+- `hibernation_schedules` (Attributes List) An array containing desired hibernation schedules (see [below for nested schema](#nestedatt--hibernation_schedules))
 - `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
 
 ### Read-Only
 
-- `hibernated` (Boolean)
-- `last_updated` (String)
-- `uid` (String)
+- `hibernated` (Boolean) Show current hibernation state of the cluster
+- `last_updated` (String) Set local time when cluster resource is created and each time cluster is updated.
+- `uid` (String) Unique cluster ID
 
 <a id="nestedatt--provider_details"></a>
 ### Nested Schema for `provider_details`
 
 Required:
 
-- `worker_groups` (Attributes List) (see [below for nested schema](#nestedatt--provider_details--worker_groups))
+- `worker_groups` (Attributes List) Defines the worker groups (see [below for nested schema](#nestedatt--provider_details--worker_groups))
 
 Optional:
 
-- `floating_pool_name` (String)
+- `floating_pool_name` (String) The name of the external network to connect to. Defaults to 'ext-net'.
 
 <a id="nestedatt--provider_details--worker_groups"></a>
 ### Nested Schema for `provider_details.worker_groups`
 
 Required:
 
-- `machine_type` (String)
-- `max_nodes` (Number)
-- `min_nodes` (Number)
-- `worker_group_name` (String)
+- `machine_type` (String) The name of the desired type/flavor of the worker nodes
+- `max_nodes` (Number) The maximum number of worker nodes in the worker group
+- `min_nodes` (Number) The minimum number of worker nodes in the worker group.
+- `worker_group_name` (String) Worker group name. Max 6 lowercase alphanumeric characters.
 
 Optional:
 
-- `image_name` (String)
-- `image_version` (String)
-- `worker_node_volume_size` (String)
+- `image_name` (String) The name of the image of the worker nodes
+- `image_version` (String) The version of the image of the worker nodes
+- `worker_node_volume_size` (String) The desired size of the volume used for the worker nodes. Example '50Gi'
 
 
 
@@ -104,8 +104,8 @@ Optional:
 
 Optional:
 
-- `end` (String)
-- `start` (String)
+- `end` (String) The time when the hibernation should end in Cron time format
+- `start` (String) The time when the hibernation should start in Cron time format
 
 
 <a id="nestedatt--timeouts"></a>
@@ -123,5 +123,5 @@ Import is supported using the following syntax:
 
 ```shell
 # Shoot cluster can be imported by specifying sequentially cluster_name,region_name,project_id
-terraform import cleura_shoot_cluster.test_import cluster_name, region_name, proejct_id
+terraform import cleura_shoot_cluster.test_import cluster_name, region_name, project_id
 ```
