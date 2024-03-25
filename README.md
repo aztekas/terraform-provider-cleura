@@ -108,34 +108,27 @@ where `USER_TOKEN` is the token generated in terraform cloud. Refer to the [offi
 Instead of curling Cleura API directly to get user token, you could try a helper cli tool. Install via :
 
 ```shell
-go install github.com/aztekas/cleura-client-go/cmd/cleura@latest
+go install github.com/aztekas/cleura-client-go/cmd/cleura@v0.0.1
 ```
 
 To get token use `cleura token get` command. It supports several methods to supply your Cleura credentials:
 
 ```shell
- cleura token get -h
+❯ cl token get -h
 NAME:
-   Cleura API CLI token get
-
-USAGE:
-   Cleura API CLI token get [command options] [arguments...]
+   cleura token get - Receive token from Cleura API using username and password                                                                                                                                                                 USAGE:
+   cleura token get [command options] [arguments...]                                                                                                                                                                                            DESCRIPTION:
+   Receive token from Cleura API using username and password
 
 OPTIONS:
-   --username value, -u value          Username for token request [$CLEURA_API_USERNAME]
-   --password value, -p value          Password for token request [$CLEURA_API_PASSWORD]
-   --credentials-file value, -c value  Path to credentials json file
-   --api-host value, --host value      Cleura API host (default: "https://rest.cleura.cloud")
-   --help, -h                          show help
-```
-
-If using `--credentials-file`, create a file with json object:
-
-```json
-{
-    "username":"your-username",
-    "password":"your-password"
-}
+   --username value, -u value      Username for token request [$CLEURA_API_USERNAME]
+   --password value, -p value      Password for token request. [$CLEURA_API_PASSWORD]
+   --api-host value, --host value  Cleura API host (default: "https://rest.cleura.cloud") [$CLEURA_API_HOST]
+   --update-config                 Save token to active configuration. NB: token saved in open text (default: false)
+   --config-path value             Path to configuration file. $HOME/.config/cleura/config if not set
+   --interactive, -i               Interactive mode. Input username and password in interactive mode (default: false)
+   --two-factor, --2fa             Set this flag if two-factor authentication (sms) is enabled in your cleura profile  (default: false)
+   --help, -h                      show help
 ```
 
 On successful authentication you will get an output in the following format:
@@ -146,4 +139,4 @@ export CLEURA_API_USERNAME=<YOUR EMAIL>
 export CLEURA_API_HOST=https://rest.cleura.cloud
 ```
 
-> Currently, cleura cli does not support accounts with enabled two factor authentication
+Check latest cli version: <https://github.com/aztekas/cleura-client-go>

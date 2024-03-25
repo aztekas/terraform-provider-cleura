@@ -3,6 +3,16 @@
 ## TODO
 
 1. [ ] If cluster in destroyed via ui (not reflected in state) then terraform should update the state and try to create a new one with the given parameters defined in `cleura_shoot_cluster` resource. At the moment it outputs "Error Reading Shoot cluster". Do not remember how it works in,say, google provider.
+1. [ ] Add maintenance window functionality
+
+## BUGS or FEATURES
+
+1. Got 409 error when updating `image_version` on all worker groups simultaneously. Not repeatable error.
+1. (API) If adding several hibernation schedules it is not possible to remove one from the list. API errors with internal error, same behavior via UI console.
+1. Somehow waiter functionality fails (clusterReadyOperationWaiter), and cluster can be shown as created right after `terraform apply` is run. (not repeatable)
+
+## IMPLEMENTED/FIXED
+
 1. [x] Allow possibility to omit specification of worker group name.
 1. [x] Check how/if timeout for `create` and `delete` work.
 1. [x] Add APIError struct to parse errors from Cleura API
@@ -15,14 +25,8 @@
 1. [x] Add basic testing
 1. [x] Add possibility to provide token string to provider configuration. Will require getting the correct token outside terraform.
 1. [x] Add Import functionality (for moving existing resources into terraform state)
-1. [ ] Add maintenance window functionality
-1. [ ] Do not allow empty worker_groups list, same way as for hibernation schedules (via list validator)
+1. [x] Do not allow empty worker_groups list, same way as for hibernation schedules (via list validator)
 1. [x] Add datasource for projects. Openstack provider can be used here.
-1. [ ] (docs) Add description fields to the shoot cluster resource schema.
-1. [ ] (docs) Add description fields to the shoot cluster datasource schema.
-1. [ ] (docs) Add description fields to the provider schema
-
-## BUGS or FEATURES
-
-1. Got 409 error when updating `image_version` on all worker groups simultaneously. Not repeatable error.
-1. (API) If adding several hibernation schedules it is not possible to remove one from the list. API errors with internal error, same behavior via UI console.
+1. [x] (docs) Add description fields to the shoot cluster resource schema.
+1. [x] (docs) Add description fields to the shoot cluster datasource schema.
+1. [x] (docs) Add description fields to the provider schema
