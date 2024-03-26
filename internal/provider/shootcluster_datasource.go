@@ -30,7 +30,6 @@ type shootClusterDataSourceModel struct {
 	AdvertisedAddresses []shootClusterAdvertisedAddressesModel `tfsdk:"advertised_addresses"`
 }
 
-// coffeesIngredientsModel maps coffee ingredients data
 type shootClusterConditionsModel struct {
 	Type    types.String `tfsdk:"type"`
 	Status  types.String `tfsdk:"status"`
@@ -63,27 +62,27 @@ func (d *shootClusterDataSource) Schema(_ context.Context, _ datasource.SchemaRe
 		Attributes: map[string]schema.Attribute{
 
 			"uid": schema.StringAttribute{
-				Computed: true,
-				Description: "Unique cluster identifier.",
+				Computed:    true,
+				Description: "Unique cluster identifier",
 			},
 			"project": schema.StringAttribute{
-				Required: true,
+				Required:    true,
 				Description: "Project where shoot cluster is created.",
 			},
 			"name": schema.StringAttribute{
-				Required: true,
+				Required:    true,
 				Description: "Shoot cluster name.",
 			},
 			"region": schema.StringAttribute{
-				Required: true,
+				Required:    true,
 				Description: "Shoot cluster region.",
 			},
 			"hibernated": schema.BoolAttribute{
-				Computed: true,
+				Computed:    true,
 				Description: "Current hibernation state of the cluster",
 			},
 			"advertised_addresses": schema.ListNestedAttribute{
-				Computed: true,
+				Computed:    true,
 				Description: "Advertised cluster addresses",
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
@@ -97,7 +96,7 @@ func (d *shootClusterDataSource) Schema(_ context.Context, _ datasource.SchemaRe
 				},
 			},
 			"conditions": schema.ListNestedAttribute{
-				Computed: true,
+				Computed:    true,
 				Description: "Shoot cluster statuses",
 				NestedObject: schema.NestedAttributeObject{
 					Attributes: map[string]schema.Attribute{
