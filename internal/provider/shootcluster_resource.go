@@ -68,7 +68,7 @@ func (r *shootClusterResource) ValidateConfig(ctx context.Context, req resource.
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	//No validation if no hibernation schedules defined
+	// No validation if no hibernation schedules defined
 	if config.HibernationSchedules == nil {
 		return
 	}
@@ -236,8 +236,8 @@ type shootClusterResourceModel struct {
 	ProviderDetails      shootProviderDetailsModel  `tfsdk:"provider_details"`
 	Hibernated           types.Bool                 `tfsdk:"hibernated"`
 	HibernationSchedules []hibernationScheduleModel `tfsdk:"hibernation_schedules"`
-	//Conditions          []shootClusterConditionsModel          `tfsdk:"conditions"`
-	//AdvertisedAddresses []shootClusterAdvertisedAddressesModel `tfsdk:"advertised_addresses"`
+	// Conditions          []shootClusterConditionsModel          `tfsdk:"conditions"`
+	// AdvertisedAddresses []shootClusterAdvertisedAddressesModel `tfsdk:"advertised_addresses"`
 }
 
 type hibernationScheduleModel struct {
@@ -330,7 +330,7 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 		clusterRequest.Shoot.Hibernation.HibernationSchedules = hibernationSchedules
 	}
 
-	//Debug clusterRequest content
+	// Debug clusterRequest content
 	jsonByte, err := json.Marshal(clusterRequest)
 	if err != nil {
 		tflog.Debug(ctx, fmt.Sprintf("error from marshaling clusterRequest: %v", err))
@@ -345,7 +345,7 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 		)
 		return
 	}
-	//Populating Computed fields
+	// Populating Computed fields
 	plan.UID = types.StringValue(shootResponse.Metadata.UID)
 	plan.Hibernated = types.BoolValue(shootResponse.Status.Hibernated)
 	plan.LastUpdated = types.StringValue(time.Now().Format(time.RFC850))
@@ -652,11 +652,11 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 	tflog.Debug(ctx, fmt.Sprintf("response after all: %+v, ", clusterUpdateResp))
 
-	plan.UID = currentState.UID //types.StringValue(clusterUpdateResp.Metadata.UID)
+	plan.UID = currentState.UID // types.StringValue(clusterUpdateResp.Metadata.UID)
 	plan.Hibernated = types.BoolValue(clusterUpdateResp.Status.Hibernated)
 	plan.LastUpdated = types.StringValue(time.Now().Format(time.RFC850))
 
-	//Required for populating computed values
+	// Required for populating computed values
 	plan.ProviderDetails.WorkerGroups = []workerGroupModel{}
 	for _, worker := range clusterUpdateResp.Spec.Provider.Workers {
 		plan.ProviderDetails.WorkerGroups = append(plan.ProviderDetails.WorkerGroups, workerGroupModel{
@@ -670,7 +670,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 		})
 	}
 
-	var hibSchedules []hibernationScheduleModel //nil
+	var hibSchedules []hibernationScheduleModel // nil
 
 	for _, schedule := range clusterUpdateResp.Spec.Hibernation.HibernationResponseSchedules {
 		hibSchedules = append(hibSchedules, hibernationScheduleModel{
@@ -739,7 +739,7 @@ func getCreateModifyDeleteWorkgroups(wgsPlan []workerGroupModel, wgsState []work
 		if _, ok := stateMap[k]; ok {
 			// wg already exists in state, so check it is modified
 			if !reflect.DeepEqual(planMap[k], stateMap[k]) {
-				//wgs are different so use the one from the plan
+				// wgs are different so use the one from the plan
 				wgModify = append(wgModify, v)
 			}
 		} else {

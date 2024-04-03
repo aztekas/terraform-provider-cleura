@@ -9,7 +9,7 @@ import (
 
 func TestAccShootResource(t *testing.T) {
 	resource.Test(t, resource.TestCase{
-		PreCheck:                 func() { testAccPreCheck(t) }, //check username and token are defined
+		PreCheck:                 func() { testAccPreCheck(t) }, // check username and token are defined
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
 		Steps: []resource.TestStep{
 			// Create and Read testing
