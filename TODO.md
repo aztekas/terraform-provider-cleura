@@ -2,8 +2,9 @@
 
 ## TODO
 
-1. [ ] If cluster in destroyed via ui (not reflected in state) then terraform should update the state and try to create a new one with the given parameters defined in `cleura_shoot_cluster` resource. At the moment it outputs "Error Reading Shoot cluster". Do not remember how it works in,say, google provider.
+1. [ ] If cluster in destroyed via ui (not reflected in state) then terraform should update the state and try to create a new one with the given parameters defined in `cleura_shoot_cluster` resource. At the moment it outputs "Error Reading Shoot cluster".
 1. [ ] Add maintenance window functionality
+1. [ ] Consider state move and sate upgrade functionality
 
 ## BUGS or FEATURES
 
