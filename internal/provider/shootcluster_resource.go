@@ -451,6 +451,7 @@ func deleteClusterOperationWaiter(client *cleura.Client, ctx context.Context, ma
 // Read refreshes the Terraform state with the latest data.
 func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadRequest, resp *resource.ReadResponse) {
 	tflog.Debug(ctx, "XXX_READ")
+
 	// Get current state
 	var state shootClusterResourceModel
 	diags := req.State.Get(ctx, &state)
@@ -461,6 +462,15 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 	// Get refreshed shoot cluster from cleura
 	shootResponse, err := r.client.GetShootCluster(state.Name.ValueString(), state.Region.ValueString(), state.Project.ValueString())
 	if err != nil {
+		re, ok := err.(*cleura.RequestAPIError)
+		if ok {
+			// Remove resource from state if it was deleted outside terraform
+			if re.StatusCode == 404 {
+				resp.State.RemoveResource(ctx)
+				resp.Diagnostics.AddWarning("Resource has been deleted outside terraform", "New resource will be created")
+				return
+			}
+		}
 		resp.Diagnostics.AddError(
 			"Error Reading Shoot cluster",
 			"Could not read Shoot cluster name "+state.Name.ValueString()+": "+err.Error(),
