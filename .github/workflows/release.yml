@@ -2,9 +2,12 @@ name: Release
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "v*"
 
 env:
-  GOPRIVATE: github.com/aztekas/cleura-client-go
+  GOPRIVATE: github.com/aztekas/*
 
 permissions:
   contents: write
@@ -26,7 +29,8 @@ jobs:
       - name: Setup SSH key to access private repository
         uses: webfactory/ssh-agent@v0.9.0
         with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+          ssh-private-key: |
+                ${{ secrets.SSH_PRIVATE_KEY }}
 
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@01dd5d3ca463c7f10f7f4f7b4f177225ac661ee4 # v6.1.0
@@ -43,3 +47,16 @@ jobs:
           # GitHub sets the GITHUB_TOKEN secret automatically.
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GPG_FINGERPRINT: ${{ steps.import_gpg.outputs.fingerprint }}
+
+      - name: Publish Private registry
+        uses: aztekas/gha-pub-private-tf-reg@v0.0.2
+        with:
+          tf_org_name: "accelerate-at-iver"
+          tf_provider_name: "cleura"
+          tf_provider_version: ${{ github.ref_name }}
+          tf_pub_key_id: ${{ secrets.TF_PUBKEY_ID }}
+          tf_pub_key: ${{ secrets.TF_PUBKEY }}
+          tf_api_token: ${{ secrets.TF_SECRET_TOKEN }}
+          assets_path: "./dist"
+          assets_prefix: "terraform-provider-cleura"
+          force_create: "true"

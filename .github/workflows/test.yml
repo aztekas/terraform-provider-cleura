@@ -1,17 +1,22 @@
-name: Test
+name: Test tag output
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "t*"
+
+
 
 permissions:
   contents: read
 
 jobs:
-  test:
+  publish:
     runs-on: ubuntu-latest
     steps:
-      - name: Test private workflow
-        id: test_wf
-        uses: aztekas/gha-publish-provider@main
-        with:
-          greet: "test my test"
+      - name: Set output
+        id: settag
+        run: echo "tag=${GITHUB_REF:11}" >> $GITHUB_OUTPUT
+      - name: Echo output
+        run: echo ${{steps.settag.outputs.tag}}
