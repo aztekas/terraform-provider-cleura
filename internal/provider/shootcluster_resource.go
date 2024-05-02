@@ -384,7 +384,8 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 func clusterReconcileWaiter(client *cleura.Client, ctx context.Context, maxRetryTime time.Duration, clusterName string, clusterRegion string, clusterProject string) error {
 	b := backoff.NewExponentialBackOff()
 	b.MaxElapsedTime = maxRetryTime - 1*time.Minute
-	b.MaxInterval = 1 * time.Minute
+	b.InitialInterval = 120 * time.Second
+	b.MaxInterval = 75 * time.Second
 	b.Multiplier = 2
 	operation := func() error {
 		clusterResp, err := client.GetShootCluster(clusterName, clusterRegion, clusterProject)
@@ -394,6 +395,14 @@ func clusterReconcileWaiter(client *cleura.Client, ctx context.Context, maxRetry
 		lastState := clusterResp.Status.LastOperation.State
 		lastOperationType := clusterResp.Status.LastOperation.Type
 		if !((lastState == "Succeeded" && lastOperationType == "Create") || (lastState == "Succeeded" && lastOperationType == "Reconcile")) {
+
+			if (b.GetElapsedTime()+b.NextBackOff() >= 400*time.Second) && b.MaxInterval != 30*time.Second {
+				b.MaxInterval = 30 * time.Second
+				b.InitialInterval = 30 * time.Second
+				b.RandomizationFactor = 0
+				b.MaxElapsedTime -= b.GetElapsedTime()
+				b.Reset()
+			}
 			return errors.New("last operation is not finished yet")
 		}
 		return nil
@@ -404,8 +413,8 @@ func clusterReconcileWaiter(client *cleura.Client, ctx context.Context, maxRetry
 func clusterReadyOperationWaiter(client *cleura.Client, ctx context.Context, maxRetryTime time.Duration, clusterName string, clusterRegion string, clusterProject string) error {
 	b := backoff.NewExponentialBackOff()
 	b.MaxElapsedTime = maxRetryTime - 1*time.Minute
-	b.MaxInterval = 1 * time.Minute
-	b.InitialInterval = 5 * time.Minute
+	b.MaxInterval = 75 * time.Second
+	b.InitialInterval = 120 * time.Second
 	b.Multiplier = 2
 	operation := func() error {
 		clusterResp, err := client.GetShootCluster(clusterName, clusterRegion, clusterProject)
@@ -414,6 +423,13 @@ func clusterReadyOperationWaiter(client *cleura.Client, ctx context.Context, max
 		}
 		for _, cond := range clusterResp.Status.Conditions {
 			if cond.Status != "True" {
+				if (b.GetElapsedTime()+b.NextBackOff() >= 400*time.Second) && b.MaxInterval != 30*time.Second {
+					b.MaxInterval = 30 * time.Second
+					b.InitialInterval = 30 * time.Second
+					b.RandomizationFactor = 0
+					b.MaxElapsedTime -= b.GetElapsedTime()
+					b.Reset()
+				}
 				return errors.New("cluster is not ready yet")
 			}
 		}
@@ -426,8 +442,8 @@ func clusterReadyOperationWaiter(client *cleura.Client, ctx context.Context, max
 func deleteClusterOperationWaiter(client *cleura.Client, ctx context.Context, maxRetryTime time.Duration, clusterName string, clusterRegion string, clusterProject string) error {
 	b := backoff.NewExponentialBackOff()
 	b.MaxElapsedTime = maxRetryTime - 1*time.Minute
-	b.MaxInterval = 2 * time.Minute
-	b.InitialInterval = 7 * time.Minute
+	b.MaxInterval = 75 * time.Second
+	b.InitialInterval = 120 * time.Second
 	b.Multiplier = 2
 	operation := func() error {
 
@@ -440,6 +456,13 @@ func deleteClusterOperationWaiter(client *cleura.Client, ctx context.Context, ma
 				}
 			}
 			return backoff.Permanent(err)
+		}
+		if (b.GetElapsedTime()+b.NextBackOff() >= 500*time.Second) && b.MaxInterval != 30*time.Second {
+			b.MaxInterval = 30 * time.Second
+			b.InitialInterval = 30 * time.Second
+			b.RandomizationFactor = 0
+			b.MaxElapsedTime -= b.GetElapsedTime()
+			b.Reset()
 		}
 
 		return errors.New("cluster is not deleted yet")
