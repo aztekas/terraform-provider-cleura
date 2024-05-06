@@ -10,3 +10,5 @@ install:
 	go install .
 snapshot:
 	goreleaser build --clean --snapshot
+docs:
+	go generate

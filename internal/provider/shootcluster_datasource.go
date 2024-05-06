@@ -19,7 +19,7 @@ var (
 
 // Datasource Model
 
-// coffeesModel maps coffees schema data.
+// shootClusterDataSourceModel maps shootcluster schema data.
 type shootClusterDataSourceModel struct {
 	UID                 types.String                           `tfsdk:"uid"`
 	Name                types.String                           `tfsdk:"name"`

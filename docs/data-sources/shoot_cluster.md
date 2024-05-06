@@ -38,7 +38,7 @@ output "name" {
 - `advertised_addresses` (Attributes List) Advertised cluster addresses (see [below for nested schema](#nestedatt--advertised_addresses))
 - `conditions` (Attributes List) Shoot cluster statuses (see [below for nested schema](#nestedatt--conditions))
 - `hibernated` (Boolean) Current hibernation state of the cluster
-- `uid` (String) Unique cluster identifier.
+- `uid` (String) Unique cluster identifier
 
 <a id="nestedatt--advertised_addresses"></a>
 ### Nested Schema for `advertised_addresses`
