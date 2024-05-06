@@ -5,6 +5,7 @@
 1. [ ] Add maintenance window functionality
 1. [ ] Consider state move and sate upgrade functionality
 1. [ ] Test out timeout functionality
+1. [ ] Add support for reading token from the cleura config file (as with cleura cli)
 
 ## BUGS or FEATURES
 
