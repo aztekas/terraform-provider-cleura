@@ -4,7 +4,6 @@
 
 1. [ ] Add maintenance window functionality
 1. [ ] Test out timeout functionality
-1. [ ] Add support for reading token from the cleura config file (as with cleura cli)
 
 ## DELAYED
 
@@ -37,3 +36,4 @@
 1. [x] (docs) Add description fields to the provider schema
 1. [x] If cluster in destroyed via ui (not reflected in state) then terraform should update the state and try to create a new one with the given parameters defined in `cleura_shoot_cluster` resource. At the moment it outputs "Error Reading Shoot cluster".
 1. [x] Calibrate exponential backoff. Start non random status checks every 30s after ~6.5 minutes.
+1. [x] Add support for reading token from the cleura config file (as with cleura cli)

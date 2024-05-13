@@ -1,6 +1,6 @@
 
 # Run acceptance tests
-.PHONY: testacc
+.PHONY: docs
 default:
 	ls -l
 # Run acceptance tests
