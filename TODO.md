@@ -3,9 +3,12 @@
 ## TODO
 
 1. [ ] Add maintenance window functionality
-1. [ ] Consider state move and sate upgrade functionality
 1. [ ] Test out timeout functionality
 1. [ ] Add support for reading token from the cleura config file (as with cleura cli)
+
+## DELAYED
+
+1. [ ] Consider state move and sate upgrade functionality. Should be implemented when needed (use case: parameter deprecation, new parameters in existing datasources and/or resources)
 
 ## BUGS or FEATURES
 
