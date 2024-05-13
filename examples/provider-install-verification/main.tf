@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     cleura = {
-      source = "app.terraform.io/accelerate-at-iver/cleura"
+      source = "accelerate-at-iver/cleura"
     }
   }
 }

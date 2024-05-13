@@ -1,142 +1,119 @@
-# Terraform Provider Cleura (Terraform Plugin Framework)
+# Terraform Provider Cleura
 
-Built on <https://github.com/hashicorp/terraform-provider-scaffolding-framework>
-template repository.
+Unofficial terraform provider for [*Cleura The European Cloud*](https://cleura.com/) public cloud. Provider currently supports [Gardener](https://gardener.cloud/) based container orchestration engine.
 
-- [Terraform Provider Cleura (Terraform Plugin Framework)](#terraform-provider-cleura-terraform-plugin-framework)
-  - [Requirements](#requirements)
-  - [Developing the Provider](#developing-the-provider)
-    - [Installing](#installing)
-    - [Testing local provider version](#testing-local-provider-version)
-    - [Running automated tests](#running-automated-tests)
-  - [Using the published version of the provider](#using-the-published-version-of-the-provider)
-  - [Getting CLEURA\_API\_TOKEN](#getting-cleura_api_token)
+- [Terraform Provider Cleura](#terraform-provider-cleura)
+  - [Prerequisites](#prerequisites)
+  - [Supported platforms](#supported-platforms)
+  - [Configuring the accelerate-at-iver/cleura provider](#configuring-the-accelerate-at-ivercleura-provider)
+  - [Using the accelerate-at-iver/cleura provider](#using-the-accelerate-at-ivercleura-provider)
+  - [Cleura CLI](#cleura-cli)
+  - [Dependencies](#dependencies)
+  - [Local development](#local-development)
 
-## Requirements
+## Prerequisites
 
-- [Terraform](https://developer.hashicorp.com/terraform/downloads) >= 1.0
-- [Go](https://golang.org/doc/install) >= 1.20
-- [Cleura Account](https://cleura.cloud/)
-- [Cleura User Token](https://apidoc.cleura.cloud/#api-Authentication-CreateToken)
+- Cleura Account / API Token
+- Terraform CLI version 1.0 and later
 
-## Developing the Provider
+## Supported platforms
 
-### Installing
+Provider supports the following platforms/architectures:
 
-If you wish to work on the provider, you'll first need [Go](http://www.golang.org) installed on your machine (see [Requirements](#requirements) above).
+- Linux / AMD64
+- Darwin / AMD64
+- Darwin / ARM64
+- Windows / AMD64
 
-To compile the provider, run `go install`. This will build the provider and put the provider binary in the `$GOPATH/bin` directory.
+## Configuring the accelerate-at-iver/cleura provider
 
-> Run `go env GOPATH` to find our $GOPATH
+To set up the provider:
 
-To generate or update documentation, run `go generate`.
+1. Get Cleura API Token, either via Cleura API [directly](https://apidoc.cleura.cloud/#api-Authentication-CreateToken), or via [Cleura CLI](https://github.com/aztekas/cleura-client-go) `cleura token get` command
+1. Configure provider by either:
+   - Setting `username`, `token`, `host` variables in the provider configuration block.
+   - Setting up corresponding environment variables (CLEURA_API_TOKEN, CLEURA_API_USERNAME, CLEURA_API_HOST)
+   - Setting `config_file` variable in the provider configuration block to a configuration file path. Check `cleura config generate-template` for configuration file template.
+1. Resulting configuration should look like this:
 
-### Testing local provider version
+```hcl
+// provider.tf
 
-In order to create resources with `dev` version of cleura provider, you have to setup terraform to run local version of the provider:
-
-1. Create/modify `~/.terraformrc` file with the following content:
-
-   ```txt
-    provider_installation {
-
-        dev_overrides {
-            "app.terraform.io/accelerate-at-iver/cleura" = "$GOPATH/bin" # set path to provider binary here
-        }
-
-        # For all other providers, install them directly from their origin provider
-        # registries as normal. If you omit this, Terraform will _only_ use
-        # the dev_overrides block, and so no other providers will be available.
-        direct {}
-
+terraform {
+  required_providers {
+    cleura = {
+      source  = "accelerate-at-iver/cleura"
+      version = "0.0.4"
     }
+  }
+}
 
-   ```
-
-1. Configure provider:
-
-   ```hcl
-    #provider.tf
-
-    terraform {
-        required_providers {
-            cleura = {
-                source = "app.terraform.io/accelerate-at-iver/cleura"
-            }
-        }
-    }
-
-    provider "cleura" {
-        host     = "https://rest.cleura.cloud" # CLEURA_API_HOST
-        username = "<username>" # CLEURA_API_USERNAME
-        token = "<token>" # CLEURA_API_TOKEN
-    }
-
-   ```
-
-1. Refer to example resource declaration [under examples folder](./examples/resources/)
-
-### Running automated tests
-
-In order to run the full suite of Acceptance tests, run `make testacc`.
-
-*Note:* Acceptance tests create real resources, and often cost money to run.
-
-```shell
-make testacc
-```
-
-Check test configuration code under [internal/provider/testdata/*/*](./internal/provider/testdata/)
-
-## Using the published version of the provider
-
-The `accelerate-at-iver/cleura` provider is published in the *private* terraform registry on the Terraform cloud. To use it, you would need to add the following snippet to the `~/.terrformrc` file:
-
-```conf
-credentials "app.terraform.io" {
-  # valid user API token:
-  token =<USER_TOKEN>
+provider "cleura" {
+/* Configuration via variables
+   host     = "https://rest.cleura.cloud"
+   username = "your-username"
+   token    = "token"
+*/
+/* Configuration via config file
+   config_file = "/home/user/.config/cleura/config"
+*/
+/* Leave blank if environment variables are used
+*/
 }
 ```
 
-where `USER_TOKEN` is the token generated in terraform cloud. Refer to the [official documentation](https://developer.hashicorp.com/terraform/cloud-docs/users-teams-organizations/users#api-tokens)
+Configuration file example:
 
-> Make sure that you comment out the `provider_installation{}` section if you are switching from development mode.
-
-## Getting CLEURA_API_TOKEN
-
-Instead of curling Cleura API directly to get user token, you could try a helper cli tool. Install via :
-
-```shell
-go install github.com/aztekas/cleura-client-go/cmd/cleura@v0.0.1
+```config
+active_profile: default
+profiles:
+  default:
+    username: your-username-here
+    token: your-token-here
+    api-url: https://rest.cleura.cloud
 ```
 
-To get token use `cleura token get` command. It supports several methods to supply your Cleura credentials:
+> [!NOTE]
+> Generated tokens are short-lived tokens and will require re-generation once expired.
 
-```shell
-❯ cl token get -h
-NAME:
-   cleura token get - Receive token from Cleura API using username and password                                                                                                                                                                 USAGE:
-   cleura token get [command options] [arguments...]                                                                                                                                                                                            DESCRIPTION:
-   Receive token from Cleura API using username and password
+> [!WARNING]
+> Configuration file stores token in open text
 
-OPTIONS:
-   --username value, -u value      Username for token request [$CLEURA_API_USERNAME]
-   --password value, -p value      Password for token request. [$CLEURA_API_PASSWORD]
-   --api-host value, --host value  Cleura API host (default: "https://rest.cleura.cloud") [$CLEURA_API_HOST]
-   --update-config                 Save token to active configuration. NB: token saved in open text (default: false)
-   --config-path value             Path to configuration file. $HOME/.config/cleura/config if not set
-   --interactive, -i               Interactive mode. Input username and password in interactive mode (default: false)
-   --two-factor, --2fa             Set this flag if two-factor authentication (sms) is enabled in your cleura profile  (default: false)
-   --help, -h                      show help
+## Using the accelerate-at-iver/cleura provider
+
+Please check [`/examples`](./examples/) folder for more usage examples.
+Basic example:
+
+```hcl
+resource "cleura_shoot_cluster" "test_cluster" {
+
+  project = "project-id"
+  region = "sto2"
+  name = "test-cluster"
+  kubernetes_version = "1.29.4"
+  provider_details = {
+    worker_groups = [
+     {
+        worker_group_name = "wr001"
+        machine_type = "b.2c4gb"
+        min_nodes = 2
+        max_nodes = 3
+        image_version = "1443.2.0"
+      }
+    ]
+  }
+
+}
 ```
 
-On successful authentication you will get an output in the following format:
+## Cleura CLI
 
-```shell
-export CLEURA_API_TOKEN=<GENERATED TOKEN>
-export CLEURA_API_USERNAME=<YOUR EMAIL>
-export CLEURA_API_HOST=https://rest.cleura.cloud
-```
+- Check latest cli version: <https://github.com/aztekas/cleura-client-go/releases>
 
-Check latest cli version: <https://github.com/aztekas/cleura-client-go>
+## Dependencies
+
+- Cleura API Go Client (<https://github.com/aztekas/cleura-client-go>)
+
+## Local development
+
+Please refer to a local development setup [docs](./LOCAL_DEVELOPMENT.md)

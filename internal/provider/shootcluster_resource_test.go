@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"os"
 	"testing"
 
 	"github.com/hashicorp/terraform-plugin-testing/config"
@@ -8,6 +9,9 @@ import (
 )
 
 func TestAccShootResource(t *testing.T) {
+	projectID := os.Getenv("CLEURA_TEST_PROJECT_ID")
+	varsTest := make(map[string]config.Variable)
+	varsTest["project-id"] = config.StringVariable(projectID)
 	resource.Test(t, resource.TestCase{
 		PreCheck:                 func() { testAccPreCheck(t) }, // check username and token are defined
 		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
@@ -15,18 +19,20 @@ func TestAccShootResource(t *testing.T) {
 			// Create and Read testing
 			{
 				ConfigDirectory: config.TestStepDirectory(),
+				ConfigVariables: varsTest,
 				Check: resource.ComposeAggregateTestCheckFunc(
+
 					// Verify number of worker groups
 					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.#", "1"),
 					// Verify Kubernetes version
-					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "kubernetes_version", "1.28.6"),
+					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "kubernetes_version", "1.29.4"),
 					// Verify first worker group in list
 					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.image_name", "gardenlinux"),
-					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.image_version", "1312.3.0"),
-					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.machine_type", "b.2c8gb"),
+					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.image_version", "1443.2.0"),
+					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.machine_type", "b.2c4gb"),
 					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.max_nodes", "2"),
 					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.min_nodes", "1"),
-					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.worker_group_name", "boboka"),
+					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.worker_group_name", "tstwg"),
 					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.worker_node_volume_size", "50Gi"),
 
 					// Verify dynamic values have any value set in the state.
@@ -38,8 +44,9 @@ func TestAccShootResource(t *testing.T) {
 			// Update and Read testing
 			{
 				ConfigDirectory: config.TestStepDirectory(),
+				ConfigVariables: varsTest,
 				Check: resource.ComposeAggregateTestCheckFunc(
-					// Verify first order item updated
+					// Verify max nodes has changed
 					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.max_nodes", "3"),
 				),
 			},
