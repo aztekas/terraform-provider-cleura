@@ -1,7 +1,7 @@
 terraform {
   required_providers {
     cleura = {
-      source = "accelerate-at-iver/cleura"
+      source = "aztekas/cleura"
     }
   }
 }

@@ -5,8 +5,8 @@ Unofficial terraform provider for [*Cleura The European Cloud*](https://cleura.c
 - [Terraform Provider Cleura](#terraform-provider-cleura)
   - [Prerequisites](#prerequisites)
   - [Supported platforms](#supported-platforms)
-  - [Configuring the accelerate-at-iver/cleura provider](#configuring-the-accelerate-at-ivercleura-provider)
-  - [Using the accelerate-at-iver/cleura provider](#using-the-accelerate-at-ivercleura-provider)
+  - [Configuring the aztekas/cleura provider](#configuring-the-aztekascleura-provider)
+  - [Using the aztekas/cleura provider](#using-the-aztekascleura-provider)
   - [Cleura CLI](#cleura-cli)
   - [Dependencies](#dependencies)
   - [Local development](#local-development)
@@ -25,7 +25,7 @@ Provider supports the following platforms/architectures:
 - Darwin / ARM64
 - Windows / AMD64
 
-## Configuring the accelerate-at-iver/cleura provider
+## Configuring the aztekas/cleura provider
 
 To set up the provider:
 
@@ -42,7 +42,7 @@ To set up the provider:
 terraform {
   required_providers {
     cleura = {
-      source  = "accelerate-at-iver/cleura"
+      source  = "aztekas/cleura"
       version = "0.0.4"
     }
   }
@@ -79,7 +79,7 @@ profiles:
 > [!WARNING]
 > Configuration file stores token in open text
 
-## Using the accelerate-at-iver/cleura provider
+## Using the aztekas/cleura provider
 
 Please check [`/examples`](./examples/) folder for more usage examples.
 Basic example:
