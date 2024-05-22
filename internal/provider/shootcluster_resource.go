@@ -308,7 +308,7 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 		},
 		)
 	}
-	tflog.Debug(ctx, fmt.Sprintf("Here's hibernation schedules: %v", hibernationSchedules))
+	tflog.Debug(ctx, fmt.Sprintf("Here's hibernation schedules: %+v", hibernationSchedules))
 
 	//------------------------------
 	clusterRequest := cleura.ShootClusterRequest{
@@ -325,9 +325,14 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 			},
 		},
 	}
+	tflog.Debug(ctx, fmt.Sprintf("Here's clusterRequest: %+v", clusterRequest))
 	// Hibernation must be set to nil(or omitted in clusterRequest) if no schedules defined in config
 	if len(hibernationSchedules) > 0 {
-		clusterRequest.Shoot.Hibernation.HibernationSchedules = hibernationSchedules
+		tflog.Debug(ctx, fmt.Sprintf("Hibernation schedules count is: %v", len(hibernationSchedules)))
+		clusterRequest.Shoot.Hibernation = &cleura.HibernationSchedules{
+			HibernationSchedules: hibernationSchedules,
+		}
+		tflog.Debug(ctx, "Hibernation schedules are set")
 	}
 
 	// Debug clusterRequest content
