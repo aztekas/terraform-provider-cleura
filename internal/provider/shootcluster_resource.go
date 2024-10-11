@@ -351,12 +351,12 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 		return
 	}
 	// Populating Computed fields
-	plan.UID = types.StringValue(shootResponse.Metadata.UID)
-	plan.Hibernated = types.BoolValue(shootResponse.Status.Hibernated)
+	plan.UID = types.StringValue(shootResponse.Shoot.UID)
+	plan.Hibernated = types.BoolValue(shootResponse.Shoot.Hibernation.Enabled)
 	plan.LastUpdated = types.StringValue(time.Now().Format(time.RFC850))
 
 	plan.ProviderDetails.WorkerGroups = []workerGroupModel{}
-	for _, worker := range shootResponse.Spec.Provider.Workers {
+	for _, worker := range shootResponse.Shoot.Provider.Workers {
 		plan.ProviderDetails.WorkerGroups = append(plan.ProviderDetails.WorkerGroups, workerGroupModel{
 			WorkerGroupName: types.StringValue(worker.Name),
 			MachineType:     worker.Machine.Type,
