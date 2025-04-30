@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"reflect"
 	"strings"
 	"time"
@@ -252,12 +253,20 @@ type shootProviderDetailsModel struct {
 
 type workerGroupModel struct {
 	WorkerGroupName types.String `tfsdk:"worker_group_name"`
-	MachineType     string       `tfsdk:"machine_type"`
+	MachineType     types.String `tfsdk:"machine_type"`
 	ImageName       types.String `tfsdk:"image_name"`
 	ImageVersion    types.String `tfsdk:"image_version"`
 	VolumeSize      types.String `tfsdk:"worker_node_volume_size"`
-	MinNodes        int16        `tfsdk:"min_nodes"`
-	MaxNodes        int16        `tfsdk:"max_nodes"`
+	MinNodes        types.Int64  `tfsdk:"min_nodes"`
+	MaxNodes        types.Int64  `tfsdk:"max_nodes"`
+}
+
+func int16Downcast(num int64) (int16, error) {
+	if num > math.MaxInt16 || num < math.MinInt16 {
+		return 0, fmt.Errorf("value %d cannot be downcasted to int16 as it would overflow", num)
+	}
+
+	return int16(num), nil
 }
 
 // Create creates the resource and sets the initial Terraform state.
@@ -281,11 +290,23 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 	var clusterWorkers []cleura.Worker
 
 	for _, worker := range plan.ProviderDetails.WorkerGroups {
+		minNodes, err := int16Downcast(worker.MinNodes.ValueInt64())
+		if err != nil {
+			resp.Diagnostics.AddError("Could not downcast min_nodes value", err.Error())
+			return
+		}
+
+		maxNodes, err := int16Downcast(worker.MaxNodes.ValueInt64())
+		if err != nil {
+			resp.Diagnostics.AddError("Could not downcast max_nodes value", err.Error())
+			return
+		}
+
 		clusterWorkers = append(clusterWorkers, cleura.Worker{
 
 			Name: worker.WorkerGroupName.ValueString(),
 			Machine: cleura.MachineDetails{
-				Type: worker.MachineType,
+				Type: worker.MachineType.ValueString(),
 				Image: cleura.ImageDetails{
 					Name:    worker.ImageName.ValueString(),
 					Version: worker.ImageVersion.ValueString(),
@@ -294,8 +315,8 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 			Volume: cleura.VolumeDetails{
 				Size: worker.VolumeSize.ValueString(),
 			},
-			Minimum: worker.MinNodes,
-			Maximum: worker.MaxNodes,
+			Minimum: minNodes,
+			Maximum: maxNodes,
 		},
 		)
 	}
@@ -359,12 +380,12 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 	for _, worker := range shootResponse.Shoot.Provider.Workers {
 		plan.ProviderDetails.WorkerGroups = append(plan.ProviderDetails.WorkerGroups, workerGroupModel{
 			WorkerGroupName: types.StringValue(worker.Name),
-			MachineType:     worker.Machine.Type,
+			MachineType:     types.StringValue(worker.Machine.Type),
 			ImageName:       types.StringValue(worker.Machine.Image.Name),
 			ImageVersion:    types.StringValue(worker.Machine.Image.Version),
 			VolumeSize:      types.StringValue(worker.Volume.Size),
-			MinNodes:        worker.Minimum,
-			MaxNodes:        worker.Maximum,
+			MinNodes:        types.Int64Value(int64(worker.Minimum)),
+			MaxNodes:        types.Int64Value(int64(worker.Maximum)),
 		})
 	}
 
@@ -516,12 +537,12 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 	for _, worker := range shootResponse.Spec.Provider.Workers {
 		state.ProviderDetails.WorkerGroups = append(state.ProviderDetails.WorkerGroups, workerGroupModel{
 			WorkerGroupName: types.StringValue(worker.Name),
-			MachineType:     worker.Machine.Type,
+			MachineType:     types.StringValue(worker.Machine.Type),
 			ImageName:       types.StringValue(worker.Machine.Image.Name),
 			ImageVersion:    types.StringValue(worker.Machine.Image.Version),
 			VolumeSize:      types.StringValue(worker.Volume.Size),
-			MinNodes:        worker.Minimum,
-			MaxNodes:        worker.Maximum,
+			MinNodes:        types.Int64Value(int64(worker.Minimum)),
+			MaxNodes:        types.Int64Value(int64(worker.Maximum)),
 		})
 
 	}
@@ -603,12 +624,24 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	wgModify, wgCreate, wgDelete := getCreateModifyDeleteWorkgroups(plan.ProviderDetails.WorkerGroups, currentState.ProviderDetails.WorkerGroups)
 	tflog.Debug(ctx, fmt.Sprintf("modify: %+v, create: %+v, delete: %+v, plan: %+v, state: %+v", wgModify, wgCreate, wgDelete, plan.ProviderDetails.WorkerGroups, currentState.ProviderDetails.WorkerGroups))
 	for _, wg := range wgModify {
+		minNodes, err := int16Downcast(wg.MinNodes.ValueInt64())
+		if err != nil {
+			resp.Diagnostics.AddError("Could not downcast min_nodes value", err.Error())
+			return
+		}
+
+		maxNodes, err := int16Downcast(wg.MaxNodes.ValueInt64())
+		if err != nil {
+			resp.Diagnostics.AddError("Could not downcast max_nodes value", err.Error())
+			return
+		}
+
 		worker := cleura.WorkerGroupRequest{
 			Worker: cleura.Worker{
-				Minimum: wg.MinNodes,
-				Maximum: wg.MaxNodes,
+				Minimum: minNodes,
+				Maximum: maxNodes,
 				Machine: cleura.MachineDetails{
-					Type: wg.MachineType,
+					Type: wg.MachineType.ValueString(),
 					Image: cleura.ImageDetails{
 						Name:    wg.ImageName.ValueString(),
 						Version: wg.ImageVersion.ValueString(),
@@ -619,7 +652,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 				},
 			},
 		}
-		_, err := r.client.UpdateWorkerGroup(plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), wg.WorkerGroupName.ValueString(), worker)
+		_, err = r.client.UpdateWorkerGroup(plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), wg.WorkerGroupName.ValueString(), worker)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"API Error Updating Worker Group",
@@ -630,13 +663,24 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 
 	}
 	for _, wg := range wgCreate {
+		minNodes, err := int16Downcast(wg.MinNodes.ValueInt64())
+		if err != nil {
+			resp.Diagnostics.AddError("Could not downcast min_nodes value", err.Error())
+			return
+		}
+
+		maxNodes, err := int16Downcast(wg.MaxNodes.ValueInt64())
+		if err != nil {
+			resp.Diagnostics.AddError("Could not downcast max_nodes value", err.Error())
+			return
+		}
 		worker := cleura.WorkerGroupRequest{
 			Worker: cleura.Worker{
 				Name:    wg.WorkerGroupName.ValueString(),
-				Minimum: wg.MinNodes,
-				Maximum: wg.MaxNodes,
+				Minimum: minNodes,
+				Maximum: maxNodes,
 				Machine: cleura.MachineDetails{
-					Type: wg.MachineType,
+					Type: wg.MachineType.ValueString(),
 					Image: cleura.ImageDetails{
 						Name:    wg.ImageName.ValueString(),
 						Version: wg.ImageVersion.ValueString(),
@@ -647,7 +691,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 				},
 			},
 		}
-		_, err := r.client.AddWorkerGroup(plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), worker)
+		_, err = r.client.AddWorkerGroup(plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), worker)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"API Error Adding Worker Group",
@@ -699,12 +743,12 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	for _, worker := range clusterUpdateResp.Spec.Provider.Workers {
 		plan.ProviderDetails.WorkerGroups = append(plan.ProviderDetails.WorkerGroups, workerGroupModel{
 			WorkerGroupName: types.StringValue(worker.Name),
-			MachineType:     worker.Machine.Type,
+			MachineType:     types.StringValue(worker.Machine.Type),
 			ImageName:       types.StringValue(worker.Machine.Image.Name),
 			ImageVersion:    types.StringValue(worker.Machine.Image.Version),
 			VolumeSize:      types.StringValue(worker.Volume.Size),
-			MinNodes:        worker.Minimum,
-			MaxNodes:        worker.Maximum,
+			MinNodes:        types.Int64Value(int64(worker.Minimum)),
+			MaxNodes:        types.Int64Value(int64(worker.Maximum)),
 		})
 	}
 
@@ -830,12 +874,12 @@ func (r *shootClusterResource) ImportState(ctx context.Context, req resource.Imp
 	for _, worker := range shootResponse.Spec.Provider.Workers {
 		state.ProviderDetails.WorkerGroups = append(state.ProviderDetails.WorkerGroups, workerGroupModel{
 			WorkerGroupName: types.StringValue(worker.Name),
-			MachineType:     worker.Machine.Type,
+			MachineType:     types.StringValue(worker.Machine.Type),
 			ImageName:       types.StringValue(worker.Machine.Image.Name),
 			ImageVersion:    types.StringValue(worker.Machine.Image.Version),
 			VolumeSize:      types.StringValue(worker.Volume.Size),
-			MinNodes:        worker.Minimum,
-			MaxNodes:        worker.Maximum,
+			MinNodes:        types.Int64Value(int64(worker.Minimum)),
+			MaxNodes:        types.Int64Value(int64(worker.Maximum)),
 		})
 	}
 	tflog.Debug(ctx, fmt.Sprintf("Hibschedules current state: %v", state.HibernationSchedules))
