@@ -125,7 +125,8 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 				Description: "One of available regions for the cluster. Depends on the enabled domains in the project",
 			},
 			"kubernetes_version": schema.StringAttribute{
-				Required:    true,
+				Optional:    true,
+				Computed:    true,
 				Description: "One of the currently available Kubernetes versions",
 			},
 			"last_updated": schema.StringAttribute{
@@ -192,7 +193,6 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 									Computed:    true,
 									Optional:    true,
 									Description: "The version of the image of the worker nodes",
-									Default:     stringdefault.StaticString("1312.2.0"),
 								},
 								"worker_node_volume_size": schema.StringAttribute{
 									Computed:    true,
@@ -286,10 +286,27 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
+	// Read the current CloudProfile configuration
+	profile, err := r.client.GetCloudProfile()
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to get profile data",
+			err.Error(),
+		)
+		return
+	}
+
+	// Use the latest Kubernetes version if not set explicitly
+	if plan.K8sVersion.ValueString() == "" {
+		plan.K8sVersion = getLatestK8sVersion(profile)
+	}
+
 	// Mapping defined workers
 	var clusterWorkers []cleura.Worker
 
 	for _, worker := range plan.ProviderDetails.WorkerGroups {
+
+		// Downcast the int64 value provided by Terraform as a int16, or throw an error if not possible
 		minNodes, err := int16Downcast(worker.MinNodes.ValueInt64())
 		if err != nil {
 			resp.Diagnostics.AddError("Could not downcast min_nodes value", err.Error())
@@ -302,6 +319,12 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 			return
 		}
 
+		// Use the latest GardenLinux image if not set explicitly
+		machineImageVersion := worker.ImageVersion
+		if machineImageVersion.ValueString() == "" {
+			machineImageVersion = getLatestGardenlinuxVersion(profile)
+		}
+
 		clusterWorkers = append(clusterWorkers, cleura.Worker{
 
 			Name: worker.WorkerGroupName.ValueString(),
@@ -309,7 +332,7 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 				Type: worker.MachineType.ValueString(),
 				Image: cleura.ImageDetails{
 					Name:    worker.ImageName.ValueString(),
-					Version: worker.ImageVersion.ValueString(),
+					Version: machineImageVersion.ValueString(),
 				},
 			},
 			Volume: cleura.VolumeDetails{
@@ -587,6 +610,21 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
+	// Read the current CloudProfile configuration
+	profile, err := r.client.GetCloudProfile()
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to get profile data",
+			err.Error(),
+		)
+		return
+	}
+
+	// Use the latest Kubernetes version if not set explicitly
+	if plan.K8sVersion.ValueString() == "" {
+		plan.K8sVersion = getLatestK8sVersion(profile)
+	}
+
 	if !reflect.DeepEqual(plan.HibernationSchedules, currentState.HibernationSchedules) || !reflect.DeepEqual(plan.K8sVersion, currentState.K8sVersion) {
 		tflog.Debug(ctx, "Hibernation schedules or K8s version changed")
 
@@ -598,6 +636,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 			},
 			)
 		}
+
 		clusterUpdateRequest := cleura.ShootClusterRequest{
 			Shoot: cleura.ShootClusterRequestConfig{
 				KubernetesVersion: &cleura.K8sVersion{
@@ -609,7 +648,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 			},
 		}
 
-		_, err := r.client.UpdateShootCluster(plan.Region.ValueString(), plan.Project.ValueString(), plan.Name.ValueString(), clusterUpdateRequest)
+		_, err = r.client.UpdateShootCluster(plan.Region.ValueString(), plan.Project.ValueString(), plan.Name.ValueString(), clusterUpdateRequest)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Error updating shoot cluster",
@@ -636,6 +675,12 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 			return
 		}
 
+		// Use the latest GardenLinux image if not set explicitly
+		machineImageVersion := wg.ImageVersion
+		if machineImageVersion.ValueString() == "" {
+			machineImageVersion = getLatestGardenlinuxVersion(profile)
+		}
+
 		worker := cleura.WorkerGroupRequest{
 			Worker: cleura.Worker{
 				Minimum: minNodes,
@@ -644,7 +689,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 					Type: wg.MachineType.ValueString(),
 					Image: cleura.ImageDetails{
 						Name:    wg.ImageName.ValueString(),
-						Version: wg.ImageVersion.ValueString(),
+						Version: machineImageVersion.ValueString(),
 					},
 				},
 				Volume: cleura.VolumeDetails{
@@ -674,6 +719,13 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 			resp.Diagnostics.AddError("Could not downcast max_nodes value", err.Error())
 			return
 		}
+
+		// Use the latest GardenLinux image if not set explicitly
+		machineImageVersion := wg.ImageVersion
+		if machineImageVersion.ValueString() == "" {
+			machineImageVersion = getLatestGardenlinuxVersion(profile)
+		}
+
 		worker := cleura.WorkerGroupRequest{
 			Worker: cleura.Worker{
 				Name:    wg.WorkerGroupName.ValueString(),
@@ -683,7 +735,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 					Type: wg.MachineType.ValueString(),
 					Image: cleura.ImageDetails{
 						Name:    wg.ImageName.ValueString(),
-						Version: wg.ImageVersion.ValueString(),
+						Version: machineImageVersion.ValueString(),
 					},
 				},
 				Volume: cleura.VolumeDetails{
@@ -714,7 +766,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 
 	}
 	// Wait cluster ready after update
-	err := clusterReconcileWaiter(r.client, ctx, createTimeout, plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
+	err = clusterReconcileWaiter(r.client, ctx, createTimeout, plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 
