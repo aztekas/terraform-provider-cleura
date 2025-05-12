@@ -53,7 +53,6 @@ output "cluster" {
 
 ### Required
 
-- `kubernetes_version` (String) One of the currently available Kubernetes versions
 - `name` (String) Name of the shoot cluster
 - `project` (String) Id of the project where cluster will be created.
 - `provider_details` (Attributes) Cluster details. (see [below for nested schema](#nestedatt--provider_details))
@@ -61,6 +60,7 @@ output "cluster" {
 
 ### Optional
 
+- `kubernetes_version` (String) One of the currently available Kubernetes versions. Defaults to latest available version.
 - `hibernation_schedules` (Attributes List) An array containing desired hibernation schedules (see [below for nested schema](#nestedatt--hibernation_schedules))
 - `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
 
@@ -94,7 +94,7 @@ Required:
 Optional:
 
 - `image_name` (String) The name of the image of the worker nodes
-- `image_version` (String) The version of the image of the worker nodes
+- `image_version` (String) The version of the image of the worker nodes. Defaults to latest available version.
 - `worker_node_volume_size` (String) The desired size of the volume used for the worker nodes. Example '50Gi'
 
 
