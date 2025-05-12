@@ -15,6 +15,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -193,6 +194,9 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 									Computed:    true,
 									Optional:    true,
 									Description: "The version of the image of the worker nodes",
+									PlanModifiers: []planmodifier.String{
+										stringplanmodifier.UseStateForUnknown(),
+									},
 								},
 								"worker_node_volume_size": schema.StringAttribute{
 									Computed:    true,
@@ -247,8 +251,8 @@ type hibernationScheduleModel struct {
 }
 
 type shootProviderDetailsModel struct {
-	FloatingPoolName types.String       `tfsdk:"floating_pool_name"`
-	WorkerGroups     []workerGroupModel `tfsdk:"worker_groups"`
+	FloatingPoolName types.String `tfsdk:"floating_pool_name"`
+	WorkerGroups     types.List   `tfsdk:"worker_groups"`
 }
 
 type workerGroupModel struct {
@@ -261,12 +265,96 @@ type workerGroupModel struct {
 	MaxNodes        types.Int64  `tfsdk:"max_nodes"`
 }
 
+func workerGroupModelAttrTypes() map[string]attr.Type {
+	return map[string]attr.Type{
+		"worker_group_name":       types.StringType,
+		"machine_type":            types.StringType,
+		"image_name":              types.StringType,
+		"image_version":           types.StringType,
+		"worker_node_volume_size": types.StringType,
+		"min_nodes":               types.Int64Type,
+		"max_nodes":               types.Int64Type,
+	}
+}
+
 func int16Downcast(num int64) (int16, error) {
 	if num > math.MaxInt16 || num < math.MinInt16 {
 		return 0, fmt.Errorf("value %d cannot be downcasted to int16 as it would overflow", num)
 	}
 
 	return int16(num), nil
+}
+
+func getStringAttr(key string, value attr.Value) (types.String, diag.Diagnostics) {
+	objVal, ok := value.(types.Object)
+	var diags diag.Diagnostics
+
+	if !ok {
+		diags.AddError("Invalid Value", "Expected Object in list")
+		return types.StringNull(), diags
+	}
+
+	attributes := objVal.Attributes()
+	if attribute, ok := attributes[key].(types.String); ok {
+		return attribute, nil
+	} else {
+		return types.StringNull(), nil
+	}
+}
+
+func getInt64Attr(key string, value attr.Value) (types.Int64, diag.Diagnostics) {
+	objVal, ok := value.(types.Object)
+	var diags diag.Diagnostics
+
+	if !ok {
+		diags.AddError("Invalid Value", "Expected Object in list")
+		return types.Int64Null(), diags
+	}
+
+	attributes := objVal.Attributes()
+	if attribute, ok := attributes[key].(types.Int64); ok {
+		return attribute, nil
+	} else {
+		return types.Int64Null(), nil
+	}
+}
+
+func attrValuesToWorkerGroupModel(ctx context.Context, value attr.Value, diags *diag.Diagnostics) workerGroupModel {
+	var err diag.Diagnostics
+	workerGroup := workerGroupModel{}
+
+	workerGroup.WorkerGroupName, err = getStringAttr("worker_group_name", value)
+	diags.Append(err...)
+
+	workerGroup.MachineType, err = getStringAttr("machine_type", value)
+	diags.Append(err...)
+
+	workerGroup.ImageName, err = getStringAttr("image_name", value)
+	diags.Append(err...)
+
+	workerGroup.ImageVersion, err = getStringAttr("image_version", value)
+	diags.Append(err...)
+
+	workerGroup.VolumeSize, err = getStringAttr("worker_node_volume_size", value)
+	diags.Append(err...)
+
+	workerGroup.MinNodes, err = getInt64Attr("min_nodes", value)
+	diags.Append(err...)
+
+	workerGroup.MaxNodes, err = getInt64Attr("max_nodes", value)
+	diags.Append(err...)
+
+	return workerGroup
+}
+
+func attrValuesToWorkerGroupModelSlice(ctx context.Context, values []attr.Value, diags *diag.Diagnostics) []workerGroupModel {
+	var result []workerGroupModel
+
+	for _, val := range values {
+		result = append(result, attrValuesToWorkerGroupModel(ctx, val, diags))
+	}
+
+	return result
 }
 
 // Create creates the resource and sets the initial Terraform state.
@@ -301,10 +389,27 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 		plan.K8sVersion = getLatestK8sVersion(profile)
 	}
 
+	var workerGroups []attr.Value
+	for _, group := range plan.ProviderDetails.WorkerGroups.Elements() {
+		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypes(), group)
+		resp.Diagnostics.Append(diags...)
+		workerGroups = append(workerGroups, objVal)
+	}
+
+	plan.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypes()}, workerGroups)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	// Mapping defined workers
 	var clusterWorkers []cleura.Worker
 
-	for _, worker := range plan.ProviderDetails.WorkerGroups {
+	for _, wg := range workerGroups {
+		worker := attrValuesToWorkerGroupModel(ctx, wg, &resp.Diagnostics)
+		if resp.Diagnostics.HasError() {
+			return
+		}
 
 		// Downcast the int64 value provided by Terraform as a int16, or throw an error if not possible
 		minNodes, err := int16Downcast(worker.MinNodes.ValueInt64())
@@ -399,9 +504,10 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 	plan.Hibernated = types.BoolValue(shootResponse.Shoot.Hibernation.Enabled)
 	plan.LastUpdated = types.StringValue(time.Now().Format(time.RFC850))
 
-	plan.ProviderDetails.WorkerGroups = []workerGroupModel{}
+	// Reset the current worker groups value and store the computed values
+	workerGroups = make([]attr.Value, 0)
 	for _, worker := range shootResponse.Shoot.Provider.Workers {
-		plan.ProviderDetails.WorkerGroups = append(plan.ProviderDetails.WorkerGroups, workerGroupModel{
+		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypes(), workerGroupModel{
 			WorkerGroupName: types.StringValue(worker.Name),
 			MachineType:     types.StringValue(worker.Machine.Type),
 			ImageName:       types.StringValue(worker.Machine.Image.Name),
@@ -410,6 +516,14 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 			MinNodes:        types.Int64Value(int64(worker.Minimum)),
 			MaxNodes:        types.Int64Value(int64(worker.Maximum)),
 		})
+		resp.Diagnostics.Append(diags...)
+		workerGroups = append(workerGroups, objVal)
+	}
+
+	plan.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypes()}, workerGroups)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
 	err = clusterReadyOperationWaiter(r.client, ctx, createTimeout, plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
@@ -556,19 +670,19 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 	state.Hibernated = types.BoolValue(shootResponse.Status.Hibernated)
 	state.K8sVersion = types.StringValue(shootResponse.Spec.Kubernetes.Version)
 
-	state.ProviderDetails.WorkerGroups = []workerGroupModel{}
-	for _, worker := range shootResponse.Spec.Provider.Workers {
-		state.ProviderDetails.WorkerGroups = append(state.ProviderDetails.WorkerGroups, workerGroupModel{
-			WorkerGroupName: types.StringValue(worker.Name),
-			MachineType:     types.StringValue(worker.Machine.Type),
-			ImageName:       types.StringValue(worker.Machine.Image.Name),
-			ImageVersion:    types.StringValue(worker.Machine.Image.Version),
-			VolumeSize:      types.StringValue(worker.Volume.Size),
-			MinNodes:        types.Int64Value(int64(worker.Minimum)),
-			MaxNodes:        types.Int64Value(int64(worker.Maximum)),
-		})
-
+	var workerGroups []attr.Value
+	for _, group := range state.ProviderDetails.WorkerGroups.Elements() {
+		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypes(), group)
+		resp.Diagnostics.Append(diags...)
+		workerGroups = append(workerGroups, objVal)
 	}
+
+	state.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypes()}, workerGroups)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	tflog.Debug(ctx, fmt.Sprintf("Hibschedules current state: %v", state.HibernationSchedules))
 	var hibSchedules []hibernationScheduleModel
 
@@ -660,7 +774,26 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 
 	tflog.Debug(ctx, "Workergroups changed")
-	wgModify, wgCreate, wgDelete := getCreateModifyDeleteWorkgroups(plan.ProviderDetails.WorkerGroups, currentState.ProviderDetails.WorkerGroups)
+
+	var plannedWorkerGroups []attr.Value
+	for _, group := range plan.ProviderDetails.WorkerGroups.Elements() {
+		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypes(), group)
+		resp.Diagnostics.Append(diags...)
+		plannedWorkerGroups = append(plannedWorkerGroups, objVal)
+	}
+
+	var currentWorkerGroups []attr.Value
+	for _, group := range currentState.ProviderDetails.WorkerGroups.Elements() {
+		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypes(), group)
+		resp.Diagnostics.Append(diags...)
+		currentWorkerGroups = append(currentWorkerGroups, objVal)
+	}
+
+	wgModify, wgCreate, wgDelete := getCreateModifyDeleteWorkgroups(
+		attrValuesToWorkerGroupModelSlice(ctx, plannedWorkerGroups, &resp.Diagnostics),
+		attrValuesToWorkerGroupModelSlice(ctx, currentWorkerGroups, &resp.Diagnostics),
+	)
+
 	tflog.Debug(ctx, fmt.Sprintf("modify: %+v, create: %+v, delete: %+v, plan: %+v, state: %+v", wgModify, wgCreate, wgDelete, plan.ProviderDetails.WorkerGroups, currentState.ProviderDetails.WorkerGroups))
 	for _, wg := range wgModify {
 		minNodes, err := int16Downcast(wg.MinNodes.ValueInt64())
@@ -790,10 +923,10 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	plan.Hibernated = types.BoolValue(clusterUpdateResp.Status.Hibernated)
 	plan.LastUpdated = types.StringValue(time.Now().Format(time.RFC850))
 
-	// Required for populating computed values
-	plan.ProviderDetails.WorkerGroups = []workerGroupModel{}
+	var workerGroups []attr.Value
+
 	for _, worker := range clusterUpdateResp.Spec.Provider.Workers {
-		plan.ProviderDetails.WorkerGroups = append(plan.ProviderDetails.WorkerGroups, workerGroupModel{
+		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypes(), workerGroupModel{
 			WorkerGroupName: types.StringValue(worker.Name),
 			MachineType:     types.StringValue(worker.Machine.Type),
 			ImageName:       types.StringValue(worker.Machine.Image.Name),
@@ -802,6 +935,14 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 			MinNodes:        types.Int64Value(int64(worker.Minimum)),
 			MaxNodes:        types.Int64Value(int64(worker.Maximum)),
 		})
+		resp.Diagnostics.Append(diags...)
+		workerGroups = append(workerGroups, objVal)
+	}
+
+	plan.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypes()}, workerGroups)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
 	}
 
 	var hibSchedules []hibernationScheduleModel // nil
@@ -922,9 +1063,15 @@ func (r *shootClusterResource) ImportState(ctx context.Context, req resource.Imp
 	state.K8sVersion = types.StringValue(shootResponse.Spec.Kubernetes.Version)
 	state.ProviderDetails.FloatingPoolName = types.StringValue(shootResponse.Spec.Provider.InfrastructureConfig.FloatingPoolName)
 
-	state.ProviderDetails.WorkerGroups = []workerGroupModel{}
+	var workerGroups []attr.Value
+	for _, group := range state.ProviderDetails.WorkerGroups.Elements() {
+		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypes(), group)
+		resp.Diagnostics.Append(diags...)
+		workerGroups = append(workerGroups, objVal)
+	}
+
 	for _, worker := range shootResponse.Spec.Provider.Workers {
-		state.ProviderDetails.WorkerGroups = append(state.ProviderDetails.WorkerGroups, workerGroupModel{
+		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypes(), workerGroupModel{
 			WorkerGroupName: types.StringValue(worker.Name),
 			MachineType:     types.StringValue(worker.Machine.Type),
 			ImageName:       types.StringValue(worker.Machine.Image.Name),
@@ -933,7 +1080,18 @@ func (r *shootClusterResource) ImportState(ctx context.Context, req resource.Imp
 			MinNodes:        types.Int64Value(int64(worker.Minimum)),
 			MaxNodes:        types.Int64Value(int64(worker.Maximum)),
 		})
+		resp.Diagnostics.Append(diags...)
+		workerGroups = append(workerGroups, objVal)
 	}
+
+	var diags diag.Diagnostics
+
+	state.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypes()}, workerGroups)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	tflog.Debug(ctx, fmt.Sprintf("Hibschedules current state: %v", state.HibernationSchedules))
 	var hibSchedules []hibernationScheduleModel
 
@@ -955,7 +1113,7 @@ func (r *shootClusterResource) ImportState(ctx context.Context, req resource.Imp
 	}
 
 	// Set refreshed state
-	diags := resp.State.Set(ctx, &state)
+	diags = resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
