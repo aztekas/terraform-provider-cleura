@@ -319,7 +319,7 @@ func getInt64Attr(key string, value attr.Value) (types.Int64, diag.Diagnostics) 
 	}
 }
 
-func attrValuesToWorkerGroupModel(ctx context.Context, value attr.Value, diags *diag.Diagnostics) workerGroupModel {
+func attrValuesToWorkerGroupModel(value attr.Value, diags *diag.Diagnostics) workerGroupModel {
 	var err diag.Diagnostics
 	workerGroup := workerGroupModel{}
 
@@ -347,11 +347,11 @@ func attrValuesToWorkerGroupModel(ctx context.Context, value attr.Value, diags *
 	return workerGroup
 }
 
-func attrValuesToWorkerGroupModelSlice(ctx context.Context, values []attr.Value, diags *diag.Diagnostics) []workerGroupModel {
+func attrValuesToWorkerGroupModelSlice(values []attr.Value, diags *diag.Diagnostics) []workerGroupModel {
 	var result []workerGroupModel
 
 	for _, val := range values {
-		result = append(result, attrValuesToWorkerGroupModel(ctx, val, diags))
+		result = append(result, attrValuesToWorkerGroupModel(val, diags))
 	}
 
 	return result
@@ -406,7 +406,7 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 	var clusterWorkers []cleura.Worker
 
 	for _, wg := range workerGroups {
-		worker := attrValuesToWorkerGroupModel(ctx, wg, &resp.Diagnostics)
+		worker := attrValuesToWorkerGroupModel(wg, &resp.Diagnostics)
 		if resp.Diagnostics.HasError() {
 			return
 		}
@@ -790,8 +790,8 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 
 	wgModify, wgCreate, wgDelete := getCreateModifyDeleteWorkgroups(
-		attrValuesToWorkerGroupModelSlice(ctx, plannedWorkerGroups, &resp.Diagnostics),
-		attrValuesToWorkerGroupModelSlice(ctx, currentWorkerGroups, &resp.Diagnostics),
+		attrValuesToWorkerGroupModelSlice(plannedWorkerGroups, &resp.Diagnostics),
+		attrValuesToWorkerGroupModelSlice(currentWorkerGroups, &resp.Diagnostics),
 	)
 
 	tflog.Debug(ctx, fmt.Sprintf("modify: %+v, create: %+v, delete: %+v, plan: %+v, state: %+v", wgModify, wgCreate, wgDelete, plan.ProviderDetails.WorkerGroups, currentState.ProviderDetails.WorkerGroups))
