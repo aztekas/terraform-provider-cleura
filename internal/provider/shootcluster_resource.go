@@ -111,6 +111,15 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 				},
 				Description: "Name of the shoot cluster",
 			},
+			"gardener_domain": schema.StringAttribute{
+				Optional: true,
+				Computed: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.RequiresReplace(),
+				},
+				Description: "Gardener domain. Defaults to 'public'",
+				Default:     stringdefault.StaticString("public"),
+			},
 			"project": schema.StringAttribute{
 				Required: true,
 				PlanModifiers: []planmodifier.String{
@@ -238,6 +247,7 @@ type shootClusterResourceModel struct {
 	Project              types.String               `tfsdk:"project"`
 	K8sVersion           types.String               `tfsdk:"kubernetes_version"`
 	LastUpdated          types.String               `tfsdk:"last_updated"`
+	GardenerDomain       types.String               `tfsdk:"gardener_domain"`
 	ProviderDetails      shootProviderDetailsModel  `tfsdk:"provider_details"`
 	Hibernated           types.Bool                 `tfsdk:"hibernated"`
 	HibernationSchedules []hibernationScheduleModel `tfsdk:"hibernation_schedules"`
@@ -491,7 +501,7 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 	}
 	tflog.Debug(ctx, fmt.Sprintf("clusterRequest: %v", string(jsonByte)))
 
-	shootResponse, err := r.client.CreateShootCluster(plan.Region.ValueString(), plan.Project.ValueString(), clusterRequest)
+	shootResponse, err := r.client.CreateShootCluster(plan.GardenerDomain.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), clusterRequest)
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error creating shoot cluster",
@@ -526,7 +536,7 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 		return
 	}
 
-	err = clusterReadyOperationWaiter(r.client, ctx, createTimeout, plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
+	err = clusterReadyOperationWaiter(r.client, ctx, createTimeout, plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 
@@ -544,14 +554,14 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 	}
 }
 
-func clusterReconcileWaiter(client *cleura.Client, ctx context.Context, maxRetryTime time.Duration, clusterName string, clusterRegion string, clusterProject string) error {
+func clusterReconcileWaiter(client *cleura.Client, ctx context.Context, maxRetryTime time.Duration, gardenerDomain string, clusterName string, clusterRegion string, clusterProject string) error {
 	b := backoff.NewExponentialBackOff()
 	b.MaxElapsedTime = maxRetryTime - 1*time.Minute
 	b.InitialInterval = 120 * time.Second
 	b.MaxInterval = 75 * time.Second
 	b.Multiplier = 2
 	operation := func() error {
-		clusterResp, err := client.GetShootCluster(clusterName, clusterRegion, clusterProject)
+		clusterResp, err := client.GetShootCluster(gardenerDomain, clusterName, clusterRegion, clusterProject)
 		if err != nil {
 			return backoff.Permanent(err)
 		}
@@ -573,14 +583,14 @@ func clusterReconcileWaiter(client *cleura.Client, ctx context.Context, maxRetry
 	return backoff.Retry(operation, backoff.WithContext(b, ctx))
 }
 
-func clusterReadyOperationWaiter(client *cleura.Client, ctx context.Context, maxRetryTime time.Duration, clusterName string, clusterRegion string, clusterProject string) error {
+func clusterReadyOperationWaiter(client *cleura.Client, ctx context.Context, maxRetryTime time.Duration, gardenerDomain string, clusterName string, clusterRegion string, clusterProject string) error {
 	b := backoff.NewExponentialBackOff()
 	b.MaxElapsedTime = maxRetryTime - 1*time.Minute
 	b.MaxInterval = 75 * time.Second
 	b.InitialInterval = 120 * time.Second
 	b.Multiplier = 2
 	operation := func() error {
-		clusterResp, err := client.GetShootCluster(clusterName, clusterRegion, clusterProject)
+		clusterResp, err := client.GetShootCluster(gardenerDomain, clusterName, clusterRegion, clusterProject)
 		if err != nil {
 			return backoff.Permanent(err)
 		}
@@ -602,7 +612,7 @@ func clusterReadyOperationWaiter(client *cleura.Client, ctx context.Context, max
 
 }
 
-func deleteClusterOperationWaiter(client *cleura.Client, ctx context.Context, maxRetryTime time.Duration, clusterName string, clusterRegion string, clusterProject string) error {
+func deleteClusterOperationWaiter(client *cleura.Client, ctx context.Context, maxRetryTime time.Duration, gardenerDomain string, clusterName string, clusterRegion string, clusterProject string) error {
 	b := backoff.NewExponentialBackOff()
 	b.MaxElapsedTime = maxRetryTime - 1*time.Minute
 	b.MaxInterval = 75 * time.Second
@@ -610,7 +620,7 @@ func deleteClusterOperationWaiter(client *cleura.Client, ctx context.Context, ma
 	b.Multiplier = 2
 	operation := func() error {
 
-		_, err := client.GetShootCluster(clusterName, clusterRegion, clusterProject)
+		_, err := client.GetShootCluster(gardenerDomain, clusterName, clusterRegion, clusterProject)
 		if err != nil {
 			re, ok := err.(*cleura.RequestAPIError)
 			if ok {
@@ -646,7 +656,7 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 		return
 	}
 	// Get refreshed shoot cluster from cleura
-	shootResponse, err := r.client.GetShootCluster(state.Name.ValueString(), state.Region.ValueString(), state.Project.ValueString())
+	shootResponse, err := r.client.GetShootCluster(state.GardenerDomain.ValueString(), state.Name.ValueString(), state.Region.ValueString(), state.Project.ValueString())
 	if err != nil {
 		re, ok := err.(*cleura.RequestAPIError)
 		if ok {
@@ -762,7 +772,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 			},
 		}
 
-		_, err = r.client.UpdateShootCluster(plan.Region.ValueString(), plan.Project.ValueString(), plan.Name.ValueString(), clusterUpdateRequest)
+		_, err = r.client.UpdateShootCluster(plan.GardenerDomain.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), plan.Name.ValueString(), clusterUpdateRequest)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Error updating shoot cluster",
@@ -830,7 +840,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 				},
 			},
 		}
-		_, err = r.client.UpdateWorkerGroup(plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), wg.WorkerGroupName.ValueString(), worker)
+		_, err = r.client.UpdateWorkerGroup(plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), wg.WorkerGroupName.ValueString(), worker)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"API Error Updating Worker Group",
@@ -876,7 +886,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 				},
 			},
 		}
-		_, err = r.client.AddWorkerGroup(plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), worker)
+		_, err = r.client.AddWorkerGroup(plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), worker)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"API Error Adding Worker Group",
@@ -888,7 +898,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 	for _, wg := range wgDelete {
 
-		_, err := r.client.DeleteWorkerGroup(plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), wg.WorkerGroupName.ValueString())
+		_, err := r.client.DeleteWorkerGroup(plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), wg.WorkerGroupName.ValueString())
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"API Error Deleting Worker Group",
@@ -899,7 +909,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 
 	}
 	// Wait cluster ready after update
-	err = clusterReconcileWaiter(r.client, ctx, createTimeout, plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
+	err = clusterReconcileWaiter(r.client, ctx, createTimeout, plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 
@@ -908,7 +918,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 		)
 		return
 	}
-	clusterUpdateResp, err := r.client.GetShootCluster(plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
+	clusterUpdateResp, err := r.client.GetShootCluster(plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 
@@ -981,7 +991,7 @@ func (r *shootClusterResource) Delete(ctx context.Context, req resource.DeleteRe
 	}
 
 	// Delete existing cluster
-	_, err := r.client.DeleteShootCluster(state.Name.ValueString(), state.Region.ValueString(), state.Project.ValueString())
+	_, err := r.client.DeleteShootCluster(state.GardenerDomain.ValueString(), state.Name.ValueString(), state.Region.ValueString(), state.Project.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Deleting Shoot Cluster",
@@ -990,7 +1000,7 @@ func (r *shootClusterResource) Delete(ctx context.Context, req resource.DeleteRe
 		return
 	}
 	// Wait until API responds with 404
-	err = deleteClusterOperationWaiter(r.client, ctx, createTimeout, state.Name.ValueString(), state.Region.ValueString(), state.Project.ValueString())
+	err = deleteClusterOperationWaiter(r.client, ctx, createTimeout, state.GardenerDomain.ValueString(), state.Name.ValueString(), state.Region.ValueString(), state.Project.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 
@@ -1036,19 +1046,20 @@ func (r *shootClusterResource) ImportState(ctx context.Context, req resource.Imp
 	idParts := strings.Split(req.ID, ",")
 	var state shootClusterResourceModel
 	tflog.Debug(ctx, fmt.Sprintf("idparts: %v", idParts))
-	if len(idParts) != 3 || idParts[0] == "" || idParts[1] == "" || idParts[2] == "" {
+	if len(idParts) != 4 || idParts[0] == "" || idParts[1] == "" || idParts[2] == "" || idParts[3] == "" {
 		resp.Diagnostics.AddError(
 			"Unexpected Import Identifier",
-			fmt.Sprintf("Expected import identifier with format: Name,Region,Project_id. Got: %q", req.ID),
+			fmt.Sprintf("Expected import identifier with format: GardenerDomain,Name,Region,Project_id. Got: %q", req.ID),
 		)
 		return
 	}
-	state.Name = types.StringValue(idParts[0])
-	state.Region = types.StringValue(idParts[1])
-	state.Project = types.StringValue(idParts[2])
+	state.GardenerDomain = types.StringValue(idParts[0])
+	state.Name = types.StringValue(idParts[1])
+	state.Region = types.StringValue(idParts[2])
+	state.Project = types.StringValue(idParts[3])
 
 	// Get refreshed shoot cluster from cleura
-	shootResponse, err := r.client.GetShootCluster(idParts[0], idParts[1], idParts[2])
+	shootResponse, err := r.client.GetShootCluster(idParts[0], idParts[1], idParts[2], idParts[3])
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Reading Shoot cluster",
