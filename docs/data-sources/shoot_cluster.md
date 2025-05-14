@@ -29,6 +29,7 @@ output "name" {
 
 ### Required
 
+- `gardener_domain` (String) Gardener domain
 - `name` (String) Shoot cluster name.
 - `project` (String) Project where shoot cluster is created.
 - `region` (String) Shoot cluster region.

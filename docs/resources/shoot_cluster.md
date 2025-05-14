@@ -60,8 +60,9 @@ output "cluster" {
 
 ### Optional
 
-- `kubernetes_version` (String) One of the currently available Kubernetes versions. Defaults to latest available version.
+- `gardener_domain` (String) Gardener domain. Defaults to 'public'
 - `hibernation_schedules` (Attributes List) An array containing desired hibernation schedules (see [below for nested schema](#nestedatt--hibernation_schedules))
+- `kubernetes_version` (String) One of the currently available Kubernetes versions
 - `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
 
 ### Read-Only
@@ -94,7 +95,7 @@ Required:
 Optional:
 
 - `image_name` (String) The name of the image of the worker nodes
-- `image_version` (String) The version of the image of the worker nodes. Defaults to latest available version.
+- `image_version` (String) The version of the image of the worker nodes
 - `worker_node_volume_size` (String) The desired size of the volume used for the worker nodes. Example '50Gi'
 
 
