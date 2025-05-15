@@ -834,11 +834,6 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 		return
 	}
 
-	// When upgrading the provider, this value does not exist in the state, which makes Terraform think the resource has been deleted manually.
-	if state.GardenerDomain.IsNull() {
-		state.GardenerDomain = types.StringValue("public")
-	}
-
 	// Get refreshed shoot cluster from cleura
 	shootResponse, err := r.client.GetShootCluster(state.GardenerDomain.ValueString(), state.Name.ValueString(), state.Region.ValueString(), state.Project.ValueString())
 	if err != nil {
