@@ -33,6 +33,7 @@ var (
 	_ resource.ResourceWithConfigure      = &shootClusterResource{}
 	_ resource.ResourceWithValidateConfig = &shootClusterResource{}
 	_ resource.ResourceWithImportState    = &shootClusterResource{}
+	_ resource.ResourceWithUpgradeState   = &shootClusterResource{}
 )
 
 // NewShootClusterResource is a helper function to simplify the provider implementation.
@@ -65,7 +66,7 @@ func (r *shootClusterResource) Configure(_ context.Context, req resource.Configu
 }
 
 func (r *shootClusterResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
-	var config shootClusterResourceModel
+	var config shootClusterResourceModelV1
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -236,10 +237,187 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 				},
 			},
 		},
+		Version: 2,
 	}
 }
 
-type shootClusterResourceModel struct {
+func (r *shootClusterResource) UpgradeState(ctx context.Context) map[int64]resource.StateUpgrader {
+	return map[int64]resource.StateUpgrader{
+		// State upgrade implementation from 0 (prior state version) to 1 (Schema.Version)
+		0: {
+			PriorSchema: &schema.Schema{
+				Attributes: map[string]schema.Attribute{
+					"timeouts": timeouts.Attributes(ctx, timeouts.Opts{
+						Create: true,
+						Delete: true,
+						Update: true,
+					}),
+					"name": schema.StringAttribute{
+						Required: true,
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+						},
+						Description: "Name of the shoot cluster",
+					},
+					"project": schema.StringAttribute{
+						Required: true,
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+						},
+						Description: "Id of the project where cluster will be created.",
+					},
+					"region": schema.StringAttribute{
+						Required: true,
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+						},
+						Description: "One of available regions for the cluster. Depends on the enabled domains in the project",
+					},
+					"kubernetes_version": schema.StringAttribute{
+						Required:    true,
+						Description: "One of the currently available Kubernetes versions",
+					},
+					"last_updated": schema.StringAttribute{
+						Computed:    true,
+						Description: "Set local time when cluster resource is created and each time cluster is updated.",
+					},
+					"uid": schema.StringAttribute{
+						Computed: true,
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.UseStateForUnknown(),
+						},
+						Description: "Unique cluster ID",
+					},
+					"hibernated": schema.BoolAttribute{
+						Computed:    true,
+						Description: "Show current hibernation state of the cluster",
+					},
+					"provider_details": schema.SingleNestedAttribute{
+						Required:    true,
+						Description: "Cluster details.",
+						Attributes: map[string]schema.Attribute{
+							"floating_pool_name": schema.StringAttribute{
+								Optional:    true,
+								Computed:    true,
+								Default:     stringdefault.StaticString("ext-net"),
+								Description: "The name of the external network to connect to. Defaults to 'ext-net'.",
+							},
+							"worker_groups": schema.ListNestedAttribute{
+								Required:    true,
+								Description: "Defines the worker groups",
+								Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
+								NestedObject: schema.NestedAttributeObject{
+									Attributes: map[string]schema.Attribute{
+										"worker_group_name": schema.StringAttribute{
+											Required:    true,
+											Description: "Worker group name. Max 6 lowercase alphanumeric characters.",
+											PlanModifiers: []planmodifier.String{
+												stringplanmodifier.RequiresReplaceIf(
+													func(ctx context.Context, sr planmodifier.StringRequest, rrifr *stringplanmodifier.RequiresReplaceIfFuncResponse) {
+														rrifr.RequiresReplace = !sr.StateValue.IsNull()
+													},
+													"Requires replace only if modifying existing value", ""),
+											},
+										},
+										"min_nodes": schema.Int64Attribute{
+											Required:    true,
+											Description: "The minimum number of worker nodes in the worker group.",
+										},
+										"max_nodes": schema.Int64Attribute{
+											Required:    true,
+											Description: "The maximum number of worker nodes in the worker group",
+										},
+										"machine_type": schema.StringAttribute{
+											Required:    true,
+											Description: "The name of the desired type/flavor of the worker nodes",
+										},
+										"image_name": schema.StringAttribute{
+											Computed:    true,
+											Optional:    true,
+											Description: "The name of the image of the worker nodes",
+											Default:     stringdefault.StaticString("gardenlinux"),
+										},
+										"image_version": schema.StringAttribute{
+											Computed:    true,
+											Optional:    true,
+											Description: "The version of the image of the worker nodes",
+											Default:     stringdefault.StaticString("1312.2.0"),
+										},
+										"worker_node_volume_size": schema.StringAttribute{
+											Computed:    true,
+											Optional:    true,
+											Description: "The desired size of the volume used for the worker nodes. Example '50Gi'",
+											Default:     stringdefault.StaticString("50Gi"),
+										},
+									},
+								},
+							},
+						},
+					}, // provider_details end here
+					"hibernation_schedules": schema.ListNestedAttribute{
+						Optional:    true,
+						Description: "An array containing desired hibernation schedules",
+						Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
+						NestedObject: schema.NestedAttributeObject{
+							Attributes: map[string]schema.Attribute{
+								"start": schema.StringAttribute{
+									Optional:    true,
+									Description: "The time when the hibernation should start in Cron time format",
+								},
+								"end": schema.StringAttribute{
+									Optional:    true,
+									Description: "The time when the hibernation should end in Cron time format",
+								},
+							},
+						},
+					},
+				},
+			},
+			StateUpgrader: func(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
+				var priorStateData shootClusterResourceModelV0
+
+				resp.Diagnostics.Append(req.State.Get(ctx, &priorStateData)...)
+
+				if resp.Diagnostics.HasError() {
+					return
+				}
+
+				upgradedStateData := shootClusterResourceModelV1{
+					Timeouts:             priorStateData.Timeouts,
+					UID:                  priorStateData.UID,
+					Name:                 priorStateData.Name,
+					Region:               priorStateData.Region,
+					Project:              priorStateData.Project,
+					K8sVersion:           priorStateData.K8sVersion,
+					LastUpdated:          priorStateData.LastUpdated,
+					GardenerDomain:       types.StringValue("public"),
+					ProviderDetails:      priorStateData.ProviderDetails,
+					Hibernated:           priorStateData.Hibernated,
+					HibernationSchedules: priorStateData.HibernationSchedules,
+				}
+
+				resp.Diagnostics.Append(resp.State.Set(ctx, upgradedStateData)...)
+			},
+		},
+	}
+}
+
+type shootClusterResourceModelV0 struct {
+	Timeouts             timeouts.Value             `tfsdk:"timeouts"`
+	UID                  types.String               `tfsdk:"uid"`
+	Name                 types.String               `tfsdk:"name"`
+	Region               types.String               `tfsdk:"region"`
+	Project              types.String               `tfsdk:"project"`
+	K8sVersion           types.String               `tfsdk:"kubernetes_version"`
+	LastUpdated          types.String               `tfsdk:"last_updated"`
+	ProviderDetails      shootProviderDetailsModel  `tfsdk:"provider_details"`
+	Hibernated           types.Bool                 `tfsdk:"hibernated"`
+	HibernationSchedules []hibernationScheduleModel `tfsdk:"hibernation_schedules"`
+	// Conditions          []shootClusterConditionsModel          `tfsdk:"conditions"`
+	// AdvertisedAddresses []shootClusterAdvertisedAddressesModel `tfsdk:"advertised_addresses"`
+}
+
+type shootClusterResourceModelV1 struct {
 	Timeouts             timeouts.Value             `tfsdk:"timeouts"`
 	UID                  types.String               `tfsdk:"uid"`
 	Name                 types.String               `tfsdk:"name"`
@@ -370,7 +548,7 @@ func attrValuesToWorkerGroupModelSlice(values []attr.Value, diags *diag.Diagnost
 // Create creates the resource and sets the initial Terraform state.
 func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	tflog.Debug(ctx, "XXX_CREATE")
-	var plan shootClusterResourceModel
+	var plan shootClusterResourceModelV1
 	diags := req.Plan.Get(ctx, &plan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -649,12 +827,18 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 	tflog.Debug(ctx, "XXX_READ")
 
 	// Get current state
-	var state shootClusterResourceModel
+	var state shootClusterResourceModelV1
 	diags := req.State.Get(ctx, &state)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
+
+	// When upgrading the provider, this value does not exist in the state, which makes Terraform think the resource has been deleted manually.
+	if state.GardenerDomain.IsNull() {
+		state.GardenerDomain = types.StringValue("public")
+	}
+
 	// Get refreshed shoot cluster from cleura
 	shootResponse, err := r.client.GetShootCluster(state.GardenerDomain.ValueString(), state.Name.ValueString(), state.Region.ValueString(), state.Project.ValueString())
 	if err != nil {
@@ -716,8 +900,8 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 // Update updates the resource and sets the updated Terraform state on success.
 func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	tflog.Debug(ctx, "XXX_UPDATE")
-	var plan shootClusterResourceModel
-	var currentState shootClusterResourceModel
+	var plan shootClusterResourceModelV1
+	var currentState shootClusterResourceModelV1
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -977,7 +1161,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 // Delete deletes the resource and removes the Terraform state on success.
 func (r *shootClusterResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	tflog.Debug(ctx, "XXX_DELETE")
-	var state shootClusterResourceModel
+	var state shootClusterResourceModelV1
 	diags := req.State.Get(ctx, &state)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -1044,7 +1228,7 @@ func getCreateModifyDeleteWorkgroups(wgsPlan []workerGroupModel, wgsState []work
 
 func (r *shootClusterResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	idParts := strings.Split(req.ID, ",")
-	var state shootClusterResourceModel
+	var state shootClusterResourceModelV1
 	tflog.Debug(ctx, fmt.Sprintf("idparts: %v", idParts))
 	if len(idParts) != 4 || idParts[0] == "" || idParts[1] == "" || idParts[2] == "" || idParts[3] == "" {
 		resp.Diagnostics.AddError(
