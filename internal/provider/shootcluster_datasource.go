@@ -25,6 +25,7 @@ type shootClusterDataSourceModel struct {
 	Name                types.String                           `tfsdk:"name"`
 	Region              types.String                           `tfsdk:"region"`
 	Project             types.String                           `tfsdk:"project"`
+	GardenerDomain      types.String                           `tfsdk:"gardener_domain"`
 	Hibernated          types.Bool                             `tfsdk:"hibernated"`
 	Conditions          []shootClusterConditionsModel          `tfsdk:"conditions"`
 	AdvertisedAddresses []shootClusterAdvertisedAddressesModel `tfsdk:"advertised_addresses"`
@@ -72,6 +73,10 @@ func (d *shootClusterDataSource) Schema(_ context.Context, _ datasource.SchemaRe
 			"name": schema.StringAttribute{
 				Required:    true,
 				Description: "Shoot cluster name.",
+			},
+			"gardener_domain": schema.StringAttribute{
+				Required:    true,
+				Description: "Gardener domain",
 			},
 			"region": schema.StringAttribute{
 				Required:    true,
@@ -125,7 +130,7 @@ func (d *shootClusterDataSource) Read(ctx context.Context, req datasource.ReadRe
 		return
 	}
 
-	cluster, err := d.client.GetShootCluster(state.Name.ValueString(), state.Region.ValueString(), state.Project.ValueString())
+	cluster, err := d.client.GetShootCluster(state.GardenerDomain.ValueString(), state.Name.ValueString(), state.Region.ValueString(), state.Project.ValueString())
 
 	if err != nil {
 		resp.Diagnostics.AddError(

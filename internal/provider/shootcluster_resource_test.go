@@ -25,10 +25,10 @@ func TestAccShootResource(t *testing.T) {
 					// Verify number of worker groups
 					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.#", "1"),
 					// Verify Kubernetes version
-					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "kubernetes_version", "1.29.4"),
+					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "kubernetes_version", "1.32.4"),
 					// Verify first worker group in list
 					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.image_name", "gardenlinux"),
-					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.image_version", "1443.2.0"),
+					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.image_version", "1592.8.0"),
 					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.machine_type", "b.2c4gb"),
 					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.max_nodes", "2"),
 					resource.TestCheckResourceAttr("cleura_shoot_cluster.test", "provider_details.worker_groups.0.min_nodes", "1"),

@@ -53,7 +53,6 @@ output "cluster" {
 
 ### Required
 
-- `kubernetes_version` (String) One of the currently available Kubernetes versions
 - `name` (String) Name of the shoot cluster
 - `project` (String) Id of the project where cluster will be created.
 - `provider_details` (Attributes) Cluster details. (see [below for nested schema](#nestedatt--provider_details))
@@ -61,7 +60,9 @@ output "cluster" {
 
 ### Optional
 
+- `gardener_domain` (String) Gardener domain. Defaults to 'public'
 - `hibernation_schedules` (Attributes List) An array containing desired hibernation schedules (see [below for nested schema](#nestedatt--hibernation_schedules))
+- `kubernetes_version` (String) One of the currently available Kubernetes versions
 - `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
 
 ### Read-Only
