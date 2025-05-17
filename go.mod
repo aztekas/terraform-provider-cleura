@@ -3,7 +3,7 @@ module github.com/aztekas/terraform-provider-cleura
 go 1.24.3
 
 require (
-	github.com/aztekas/cleura-client-go v0.0.11
+	github.com/aztekas/cleura-client-go v0.0.12
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/hashicorp/go-version v1.7.0
 	github.com/hashicorp/terraform-plugin-docs v0.21.0

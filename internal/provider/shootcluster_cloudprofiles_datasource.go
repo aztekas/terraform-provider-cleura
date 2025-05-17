@@ -41,6 +41,7 @@ type shootClusterProfileFilters struct {
 }
 
 type shootClusterProfilesDataSourceModel struct {
+	GardenerDomain     types.String                            `tfsdk:"gardener_domain"`
 	KubernetesLatest   types.String                            `tfsdk:"kubernetes_latest"`
 	MachineImageLatest types.String                            `tfsdk:"gardenlinux_image_latest"`
 	Filters            *shootClusterProfileFilters             `tfsdk:"filters"`
@@ -86,6 +87,10 @@ func (d *shootClusterProfilesDataSource) Metadata(_ context.Context, req datasou
 func (d *shootClusterProfilesDataSource) Schema(_ context.Context, _ datasource.SchemaRequest, resp *datasource.SchemaResponse) {
 	resp.Schema = schema.Schema{
 		Attributes: map[string]schema.Attribute{
+			"gardener_domain": schema.StringAttribute{
+				Computed: true,
+				Optional: true,
+			},
 			"kubernetes_latest": schema.StringAttribute{
 				Computed: true,
 				Required: false,
@@ -242,7 +247,7 @@ func (d *shootClusterProfilesDataSource) Read(ctx context.Context, req datasourc
 		return
 	}
 
-	profile, err := d.client.GetCloudProfile()
+	profile, err := d.client.GetCloudProfile(state.GardenerDomain.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to get profile data",
