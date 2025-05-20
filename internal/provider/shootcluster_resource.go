@@ -14,11 +14,14 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/terraform-plugin-framework-timeouts/resource/timeouts"
 	"github.com/hashicorp/terraform-plugin-framework-validators/listvalidator"
+	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
 	"github.com/hashicorp/terraform-plugin-framework/attr"
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -34,6 +37,7 @@ var (
 	_ resource.ResourceWithValidateConfig = &shootClusterResource{}
 	_ resource.ResourceWithImportState    = &shootClusterResource{}
 	_ resource.ResourceWithUpgradeState   = &shootClusterResource{}
+	_ resource.ResourceWithModifyPlan     = &shootClusterResource{}
 )
 
 // NewShootClusterResource is a helper function to simplify the provider implementation.
@@ -174,13 +178,6 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 								"worker_group_name": schema.StringAttribute{
 									Required:    true,
 									Description: "Worker group name. Max 6 lowercase alphanumeric characters.",
-									PlanModifiers: []planmodifier.String{
-										stringplanmodifier.RequiresReplaceIf(
-											func(ctx context.Context, sr planmodifier.StringRequest, rrifr *stringplanmodifier.RequiresReplaceIfFuncResponse) {
-												rrifr.RequiresReplace = !sr.StateValue.IsNull()
-											},
-											"Requires replace only if modifying existing value", ""),
-									},
 								},
 								"min_nodes": schema.Int64Attribute{
 									Required:    true,
@@ -214,6 +211,56 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 									Description: "The desired size of the volume used for the worker nodes. Example '50Gi'",
 									Default:     stringdefault.StaticString("50Gi"),
 								},
+								"annotations": schema.MapAttribute{
+									Optional:    true,
+									Description: "Annotations for taints nodes",
+									ElementType: types.StringType,
+									PlanModifiers: []planmodifier.Map{
+										mapplanmodifier.UseStateForUnknown(),
+									},
+								},
+								"labels": schema.MapAttribute{
+									Optional:    true,
+									Description: "Labels for worker nodes",
+									ElementType: types.StringType,
+									PlanModifiers: []planmodifier.Map{
+										mapplanmodifier.UseStateForUnknown(),
+									},
+								},
+								"taints": schema.ListNestedAttribute{
+									Optional:    true,
+									Description: "Taints for worker nodes",
+									CustomType:  types.ListType{ElemType: types.ObjectType{AttrTypes: taintAttrTypesV0()}},
+									NestedObject: schema.NestedAttributeObject{
+										Attributes: map[string]schema.Attribute{
+											"key": schema.StringAttribute{
+												Required:    true,
+												Description: "Key name for taint. Must adhere to Kubernetes key naming specifications",
+											},
+											"value": schema.StringAttribute{
+												Required:    true,
+												Description: "Value for taint. Must be within Kubernetes taint value specifications",
+											},
+											"effect": schema.StringAttribute{
+												Required:    true,
+												Description: "Effect for taint",
+												Validators:  []validator.String{stringvalidator.OneOf("NoSchedule", "NoExecute", "PreferNoSchedule")},
+											},
+										},
+									},
+									PlanModifiers: []planmodifier.List{
+										listplanmodifier.UseStateForUnknown(),
+									},
+								},
+								"zones": schema.ListAttribute{
+									Computed:    true,
+									Optional:    true,
+									Description: "The desired size of the volume used for the worker nodes. Example '50Gi'",
+									ElementType: types.StringType,
+									PlanModifiers: []planmodifier.List{
+										listplanmodifier.UseStateForUnknown(),
+									},
+								},
 							},
 						},
 					},
@@ -237,7 +284,7 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 				},
 			},
 		},
-		Version: 2,
+		Version: 3,
 	}
 }
 
@@ -382,10 +429,96 @@ func (r *shootClusterResource) UpgradeState(ctx context.Context) map[int64]resou
 					return
 				}
 
-				upgradedStateData := shootClusterResourceModelV1{
+				clusterResp, err := r.client.GetShootCluster(
+					"public",
+					priorStateData.Name.ValueString(),
+					priorStateData.Region.ValueString(),
+					priorStateData.Project.ValueString(),
+				)
+
+				runtimeWorkerGroup := make(map[string]cleura.WorkerUpdateResponse)
+				for _, worker := range clusterResp.Spec.Provider.Workers {
+					runtimeWorkerGroup[worker.Name] = worker
+				}
+
+				var workerGroups []attr.Value
+				for _, group := range priorStateData.ProviderDetails.WorkerGroups.Elements() {
+					objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypesV0(), group)
+					resp.Diagnostics.Append(diags...)
+					old := attrValuesToWorkerGroupModelV1(objVal, &resp.Diagnostics)
+
+					// If there is an error
+					if err != nil {
+						resp.Diagnostics.AddError("Could not find shoot cluster", fmt.Sprintf("failed to retrieve metadata for shoot cluster '%s', error: %s", priorStateData.Name.ValueString(), err))
+					}
+
+					annotations, diags := types.MapValueFrom(ctx, types.StringType, runtimeWorkerGroup[old.WorkerGroupName.ValueString()].Annotations)
+					resp.Diagnostics.Append(diags...)
+
+					labels, diags := types.MapValueFrom(ctx, types.StringType, runtimeWorkerGroup[old.WorkerGroupName.ValueString()].Labels)
+					resp.Diagnostics.Append(diags...)
+
+					var taintAttrValues []attr.Value
+					for _, taint := range runtimeWorkerGroup[old.WorkerGroupName.ValueString()].Taints {
+						tmp, diags := types.ObjectValueFrom(ctx, taintAttrTypesV0(), Taint{
+							Key:    types.StringValue(taint.Key),
+							Value:  types.StringValue(taint.Value),
+							Effect: types.StringValue(taint.Effect),
+						})
+
+						resp.Diagnostics.Append(diags...)
+						if resp.Diagnostics.HasError() {
+							return
+						}
+
+						taintAttrValues = append(taintAttrValues, tmp)
+					}
+
+					taints, diags := types.ListValueFrom(ctx, types.ObjectType{AttrTypes: taintAttrTypesV0()}, taintAttrValues)
+					resp.Diagnostics.Append(diags...)
+					if resp.Diagnostics.HasError() {
+						return
+					}
+
+					zones, diags := types.ListValueFrom(ctx, types.StringType, runtimeWorkerGroup[old.WorkerGroupName.ValueString()].Zones)
+					resp.Diagnostics.Append(diags...)
+					if resp.Diagnostics.HasError() {
+						return
+					}
+
+					newWg, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypesV1(), workerGroupModelV1{
+						WorkerGroupName: old.WorkerGroupName,
+						MachineType:     old.MachineType,
+						ImageName:       old.ImageName,
+						ImageVersion:    old.ImageVersion,
+						VolumeSize:      old.VolumeSize,
+						MinNodes:        old.MinNodes,
+						MaxNodes:        old.MaxNodes,
+						Annotations:     annotations,
+						Labels:          labels,
+						Taints:          taints,
+						Zones:           zones,
+					})
+					resp.Diagnostics.Append(diags...)
+					if resp.Diagnostics.HasError() {
+						return
+					}
+
+					workerGroups = append(workerGroups, newWg)
+
+				}
+
+				// Set upgraded WorkerGroupModelV1
+				var diags diag.Diagnostics
+				priorStateData.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypesV1()}, workerGroups)
+				resp.Diagnostics.Append(diags...)
+				if resp.Diagnostics.HasError() {
+					return
+				}
+
+				resp.Diagnostics.Append(resp.State.Set(ctx, shootClusterResourceModelV1{
 					Timeouts:             priorStateData.Timeouts,
 					UID:                  priorStateData.UID,
-					Name:                 priorStateData.Name,
 					Region:               priorStateData.Region,
 					Project:              priorStateData.Project,
 					K8sVersion:           priorStateData.K8sVersion,
@@ -394,12 +527,319 @@ func (r *shootClusterResource) UpgradeState(ctx context.Context) map[int64]resou
 					ProviderDetails:      priorStateData.ProviderDetails,
 					Hibernated:           priorStateData.Hibernated,
 					HibernationSchedules: priorStateData.HibernationSchedules,
+				})...)
+			},
+		},
+		2: {
+			PriorSchema: &schema.Schema{
+				Attributes: map[string]schema.Attribute{
+					"timeouts": timeouts.Attributes(ctx, timeouts.Opts{
+						Create: true,
+						Delete: true,
+						Update: true,
+					}),
+					"name": schema.StringAttribute{
+						Required: true,
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+						},
+						Description: "Name of the shoot cluster",
+					},
+					"gardener_domain": schema.StringAttribute{
+						Optional: true,
+						Computed: true,
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+						},
+						Description: "Gardener domain. Defaults to 'public'",
+						Default:     stringdefault.StaticString("public"),
+					},
+					"project": schema.StringAttribute{
+						Required: true,
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+						},
+						Description: "Id of the project where cluster will be created.",
+					},
+					"region": schema.StringAttribute{
+						Required: true,
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+						},
+						Description: "One of available regions for the cluster. Depends on the enabled domains in the project",
+					},
+					"kubernetes_version": schema.StringAttribute{
+						Optional:    true,
+						Computed:    true,
+						Description: "One of the currently available Kubernetes versions",
+					},
+					"last_updated": schema.StringAttribute{
+						Computed:    true,
+						Description: "Set local time when cluster resource is created and each time cluster is updated.",
+					},
+					"uid": schema.StringAttribute{
+						Computed: true,
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.UseStateForUnknown(),
+						},
+						Description: "Unique cluster ID",
+					},
+					"hibernated": schema.BoolAttribute{
+						Computed:    true,
+						Description: "Show current hibernation state of the cluster",
+					},
+					"provider_details": schema.SingleNestedAttribute{
+						Required:    true,
+						Description: "Cluster details.",
+						Attributes: map[string]schema.Attribute{
+							"floating_pool_name": schema.StringAttribute{
+								Optional:    true,
+								Computed:    true,
+								Default:     stringdefault.StaticString("ext-net"),
+								Description: "The name of the external network to connect to. Defaults to 'ext-net'.",
+							},
+							"worker_groups": schema.ListNestedAttribute{
+								Required:    true,
+								Description: "Defines the worker groups",
+								Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
+								NestedObject: schema.NestedAttributeObject{
+									Attributes: map[string]schema.Attribute{
+										"worker_group_name": schema.StringAttribute{
+											Required:    true,
+											Description: "Worker group name. Max 6 lowercase alphanumeric characters.",
+											PlanModifiers: []planmodifier.String{
+												stringplanmodifier.RequiresReplaceIf(
+													func(ctx context.Context, sr planmodifier.StringRequest, rrifr *stringplanmodifier.RequiresReplaceIfFuncResponse) {
+														rrifr.RequiresReplace = !sr.StateValue.IsNull()
+													},
+													"Requires replace only if modifying existing value", ""),
+											},
+										},
+										"min_nodes": schema.Int64Attribute{
+											Required:    true,
+											Description: "The minimum number of worker nodes in the worker group.",
+										},
+										"max_nodes": schema.Int64Attribute{
+											Required:    true,
+											Description: "The maximum number of worker nodes in the worker group",
+										},
+										"machine_type": schema.StringAttribute{
+											Required:    true,
+											Description: "The name of the desired type/flavor of the worker nodes",
+										},
+										"image_name": schema.StringAttribute{
+											Computed:    true,
+											Optional:    true,
+											Description: "The name of the image of the worker nodes",
+											Default:     stringdefault.StaticString("gardenlinux"),
+										},
+										"image_version": schema.StringAttribute{
+											Computed:    true,
+											Optional:    true,
+											Description: "The version of the image of the worker nodes",
+											PlanModifiers: []planmodifier.String{
+												stringplanmodifier.UseStateForUnknown(),
+											},
+										},
+										"worker_node_volume_size": schema.StringAttribute{
+											Computed:    true,
+											Optional:    true,
+											Description: "The desired size of the volume used for the worker nodes. Example '50Gi'",
+											Default:     stringdefault.StaticString("50Gi"),
+										},
+									},
+								},
+							},
+						},
+					}, // provider_details end here
+					"hibernation_schedules": schema.ListNestedAttribute{
+						Optional:    true,
+						Description: "An array containing desired hibernation schedules",
+						Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
+						NestedObject: schema.NestedAttributeObject{
+							Attributes: map[string]schema.Attribute{
+								"start": schema.StringAttribute{
+									Optional:    true,
+									Description: "The time when the hibernation should start in Cron time format",
+								},
+								"end": schema.StringAttribute{
+									Optional:    true,
+									Description: "The time when the hibernation should end in Cron time format",
+								},
+							},
+						},
+					},
+				},
+			},
+			StateUpgrader: func(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
+				var priorStateData shootClusterResourceModelV1
+
+				resp.Diagnostics.Append(req.State.Get(ctx, &priorStateData)...)
+
+				if resp.Diagnostics.HasError() {
+					return
 				}
 
-				resp.Diagnostics.Append(resp.State.Set(ctx, upgradedStateData)...)
+				clusterResp, err := r.client.GetShootCluster(
+					priorStateData.GardenerDomain.ValueString(),
+					priorStateData.Name.ValueString(),
+					priorStateData.Region.ValueString(),
+					priorStateData.Project.ValueString(),
+				)
+
+				runtimeWorkerGroup := make(map[string]cleura.WorkerUpdateResponse)
+				for _, worker := range clusterResp.Spec.Provider.Workers {
+					runtimeWorkerGroup[worker.Name] = worker
+				}
+
+				var workerGroups []attr.Value
+				for _, group := range priorStateData.ProviderDetails.WorkerGroups.Elements() {
+					objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypesV0(), group)
+					resp.Diagnostics.Append(diags...)
+					old := attrValuesToWorkerGroupModelV1(objVal, &resp.Diagnostics)
+
+					// If there is an error
+					if err != nil {
+						resp.Diagnostics.AddError("Could not find shoot cluster", fmt.Sprintf("failed to retrieve metadata for shoot cluster '%s', error: %s", priorStateData.Name.ValueString(), err))
+					}
+
+					annotations, diags := types.MapValueFrom(ctx, types.StringType, runtimeWorkerGroup[old.WorkerGroupName.ValueString()].Annotations)
+					resp.Diagnostics.Append(diags...)
+
+					labels, diags := types.MapValueFrom(ctx, types.StringType, runtimeWorkerGroup[old.WorkerGroupName.ValueString()].Labels)
+					resp.Diagnostics.Append(diags...)
+
+					var taintAttrValues []attr.Value
+					for _, taint := range runtimeWorkerGroup[old.WorkerGroupName.ValueString()].Taints {
+						tmp, diags := types.ObjectValueFrom(ctx, taintAttrTypesV0(), Taint{
+							Key:    types.StringValue(taint.Key),
+							Value:  types.StringValue(taint.Value),
+							Effect: types.StringValue(taint.Effect),
+						})
+
+						resp.Diagnostics.Append(diags...)
+						if resp.Diagnostics.HasError() {
+							return
+						}
+
+						taintAttrValues = append(taintAttrValues, tmp)
+					}
+
+					taints, diags := types.ListValueFrom(ctx, types.ObjectType{AttrTypes: taintAttrTypesV0()}, taintAttrValues)
+					resp.Diagnostics.Append(diags...)
+					if resp.Diagnostics.HasError() {
+						return
+					}
+
+					zones, diags := types.ListValueFrom(ctx, types.StringType, runtimeWorkerGroup[old.WorkerGroupName.ValueString()].Zones)
+					resp.Diagnostics.Append(diags...)
+					if resp.Diagnostics.HasError() {
+						return
+					}
+
+					newWg, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypesV1(), workerGroupModelV1{
+						WorkerGroupName: old.WorkerGroupName,
+						MachineType:     old.MachineType,
+						ImageName:       old.ImageName,
+						ImageVersion:    old.ImageVersion,
+						VolumeSize:      old.VolumeSize,
+						MinNodes:        old.MinNodes,
+						MaxNodes:        old.MaxNodes,
+						Annotations:     annotations,
+						Labels:          labels,
+						Taints:          taints,
+						Zones:           zones,
+					})
+					resp.Diagnostics.Append(diags...)
+					if resp.Diagnostics.HasError() {
+						return
+					}
+
+					workerGroups = append(workerGroups, newWg)
+
+				}
+
+				// Set upgraded WorkerGroupModelV1
+				var diags diag.Diagnostics
+				priorStateData.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypesV1()}, workerGroups)
+				resp.Diagnostics.Append(diags...)
+				if resp.Diagnostics.HasError() {
+					return
+				}
+
+				resp.Diagnostics.Append(resp.State.Set(ctx, priorStateData)...)
 			},
 		},
 	}
+}
+
+func (r *shootClusterResource) ModifyPlan(ctx context.Context, req resource.ModifyPlanRequest, resp *resource.ModifyPlanResponse) {
+
+	// No plan modification is needed if destroying the resource
+	if req.Plan.Raw.IsNull() {
+		return
+	}
+
+	var plan shootClusterResourceModelV1
+	diags := req.Plan.Get(ctx, &plan)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	// Fetch the cloud profile from the API
+	profile, err := r.client.GetCloudProfile(plan.GardenerDomain.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Unable to get profile data",
+			err.Error(),
+		)
+		return
+	}
+
+	// Use the latest Kubernetes version if not set explicitly
+	if plan.K8sVersion.ValueString() == "" {
+		plan.K8sVersion = getLatestK8sVersion(profile)
+	}
+
+	// Convert elements to Objects
+	var workerGroups []attr.Value
+	for _, group := range plan.ProviderDetails.WorkerGroups.Elements() {
+		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypesV1(), group)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		workerGroups = append(workerGroups, objVal)
+	}
+
+	// Iterate over all worker groups and set Kubernetes version to latest if not specified
+	for i, wg := range workerGroups {
+		worker := attrValuesToWorkerGroupModelV1(wg, &resp.Diagnostics)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		// Use the latest GardenLinux image if not set explicitly
+		if worker.ImageVersion.ValueString() == "" {
+			worker.ImageVersion = getLatestGardenlinuxVersion(profile)
+		}
+		workerGroups[i], diags = types.ObjectValueFrom(ctx, workerGroupModelAttrTypesV1(), worker)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+	}
+
+	// Set the updated objects to the plan
+	plan.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypesV1()}, workerGroups)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	resp.Plan.Set(ctx, plan)
 }
 
 type shootClusterResourceModelV0 struct {
@@ -443,7 +883,7 @@ type shootProviderDetailsModel struct {
 	WorkerGroups     types.List   `tfsdk:"worker_groups"`
 }
 
-type workerGroupModel struct {
+type workerGroupModelV1 struct {
 	WorkerGroupName types.String `tfsdk:"worker_group_name"`
 	MachineType     types.String `tfsdk:"machine_type"`
 	ImageName       types.String `tfsdk:"image_name"`
@@ -451,9 +891,24 @@ type workerGroupModel struct {
 	VolumeSize      types.String `tfsdk:"worker_node_volume_size"`
 	MinNodes        types.Int64  `tfsdk:"min_nodes"`
 	MaxNodes        types.Int64  `tfsdk:"max_nodes"`
+	Annotations     types.Map    `tfsdk:"annotations"`
+	Labels          types.Map    `tfsdk:"labels"`
+	Taints          types.List   `tfsdk:"taints"`
+	Zones           types.List   `tfsdk:"zones"`
 }
 
-func workerGroupModelAttrTypes() map[string]attr.Type {
+type KeyValuePair struct {
+	Key   types.String `tfsdk:"key"`
+	Value types.String `tfsdk:"value"`
+}
+
+type Taint struct {
+	Key    types.String `tfsdk:"key"`
+	Value  types.String `tfsdk:"value"`
+	Effect types.String `tfsdk:"effect"`
+}
+
+func workerGroupModelAttrTypesV0() map[string]attr.Type {
 	return map[string]attr.Type{
 		"worker_group_name":       types.StringType,
 		"machine_type":            types.StringType,
@@ -462,6 +917,30 @@ func workerGroupModelAttrTypes() map[string]attr.Type {
 		"worker_node_volume_size": types.StringType,
 		"min_nodes":               types.Int64Type,
 		"max_nodes":               types.Int64Type,
+	}
+}
+
+func workerGroupModelAttrTypesV1() map[string]attr.Type {
+	return map[string]attr.Type{
+		"worker_group_name":       types.StringType,
+		"machine_type":            types.StringType,
+		"image_name":              types.StringType,
+		"image_version":           types.StringType,
+		"worker_node_volume_size": types.StringType,
+		"min_nodes":               types.Int64Type,
+		"max_nodes":               types.Int64Type,
+		"annotations":             types.MapType{ElemType: types.StringType},
+		"labels":                  types.MapType{ElemType: types.StringType},
+		"taints":                  types.ListType{ElemType: types.ObjectType{AttrTypes: taintAttrTypesV0()}},
+		"zones":                   types.ListType{ElemType: types.StringType},
+	}
+}
+
+func taintAttrTypesV0() map[string]attr.Type {
+	return map[string]attr.Type{
+		"key":    types.StringType,
+		"value":  types.StringType,
+		"effect": types.StringType,
 	}
 }
 
@@ -507,9 +986,60 @@ func getInt64Attr(key string, value attr.Value) (types.Int64, diag.Diagnostics) 
 	}
 }
 
-func attrValuesToWorkerGroupModel(value attr.Value, diags *diag.Diagnostics) workerGroupModel {
+func getStringMapAttr(key string, value attr.Value) (types.Map, diag.Diagnostics) {
+	objVal, ok := value.(types.Object)
+	var diags diag.Diagnostics
+
+	if !ok {
+		diags.AddError("Invalid Value", "Expected Object in list")
+		return types.MapNull(types.StringType), diags
+	}
+
+	attributes := objVal.Attributes()
+	if attribute, ok := attributes[key].(types.Map); ok {
+		return attribute, nil
+	} else {
+		return types.MapNull(types.StringType), nil
+	}
+}
+
+func getStringListAttr(key string, value attr.Value) (types.List, diag.Diagnostics) {
+	objVal, ok := value.(types.Object)
+	var diags diag.Diagnostics
+
+	if !ok {
+		diags.AddError("Invalid Value", "Expected Object in list")
+		return types.ListNull(types.StringType), diags
+	}
+
+	attributes := objVal.Attributes()
+	if attribute, ok := attributes[key].(types.List); ok {
+		return attribute, nil
+	} else {
+		return types.ListNull(types.StringType), nil
+	}
+}
+
+func getTaintListAttr(key string, value attr.Value) (types.List, diag.Diagnostics) {
+	objVal, ok := value.(types.Object)
+	var diags diag.Diagnostics
+
+	if !ok {
+		diags.AddError("Invalid Value", "Expected Object in list")
+		return types.ListNull(types.ObjectType{AttrTypes: taintAttrTypesV0()}), diags
+	}
+
+	attributes := objVal.Attributes()
+	if attribute, ok := attributes[key].(types.List); ok {
+		return attribute, nil
+	} else {
+		return types.ListNull(types.ObjectType{AttrTypes: taintAttrTypesV0()}), nil
+	}
+}
+
+func attrValuesToWorkerGroupModelV1(value attr.Value, diags *diag.Diagnostics) workerGroupModelV1 {
 	var err diag.Diagnostics
-	workerGroup := workerGroupModel{}
+	workerGroup := workerGroupModelV1{}
 
 	workerGroup.WorkerGroupName, err = getStringAttr("worker_group_name", value)
 	diags.Append(err...)
@@ -532,17 +1062,275 @@ func attrValuesToWorkerGroupModel(value attr.Value, diags *diag.Diagnostics) wor
 	workerGroup.MaxNodes, err = getInt64Attr("max_nodes", value)
 	diags.Append(err...)
 
+	workerGroup.Annotations, err = getStringMapAttr("annotations", value)
+	diags.Append(err...)
+
+	workerGroup.Labels, err = getStringMapAttr("labels", value)
+	diags.Append(err...)
+
+	workerGroup.Taints, err = getTaintListAttr("taints", value)
+	diags.Append(err...)
+
+	workerGroup.Zones, err = getStringListAttr("zones", value)
+	diags.Append(err...)
+
 	return workerGroup
 }
 
-func attrValuesToWorkerGroupModelSlice(values []attr.Value, diags *diag.Diagnostics) []workerGroupModel {
-	var result []workerGroupModel
+func attrValuesToWorkerGroupModelSlice(values []attr.Value, diags *diag.Diagnostics) []workerGroupModelV1 {
+	var result []workerGroupModelV1
 
 	for _, val := range values {
-		result = append(result, attrValuesToWorkerGroupModel(val, diags))
+		result = append(result, attrValuesToWorkerGroupModelV1(val, diags))
 	}
 
 	return result
+}
+
+func mapValueToStringMap(source types.Map, diags *diag.Diagnostics) map[string]string {
+
+	// Check if the map is null or unknown
+	if source.IsNull() || source.IsUnknown() {
+		return nil
+	}
+
+	// Convert attribute value map to native map[string]string
+	result := make(map[string]string, len(source.Elements()))
+	for key, val := range source.Elements() {
+		strVal, ok := val.(types.String)
+		if !ok {
+			diags.AddError("Map value is not a string", fmt.Sprintf("map value for key '%s' is not a string: %T", key, val))
+			return nil
+		}
+		if strVal.IsUnknown() || strVal.IsNull() {
+			continue
+		}
+		result[key] = strVal.ValueString()
+	}
+
+	return result
+}
+
+func listValueToTaintList(ctx context.Context, source types.List, diags *diag.Diagnostics) []Taint {
+	var taints []Taint
+	for _, taint := range source.Elements() {
+		objVal, err := types.ObjectValueFrom(ctx, taintAttrTypesV0(), taint)
+		diags.Append(err...)
+
+		key, err := getStringAttr("key", objVal)
+		diags.Append(err...)
+
+		value, err := getStringAttr("value", objVal)
+		diags.Append(err...)
+
+		effect, err := getStringAttr("effect", objVal)
+		diags.Append(err...)
+
+		taints = append(taints, Taint{
+			Key:    key,
+			Value:  value,
+			Effect: effect,
+		})
+	}
+
+	return taints
+}
+
+func listStringToStringSlice(source types.List, diags *diag.Diagnostics) []string {
+	var result []string
+	for _, item := range source.Elements() {
+		strVal, ok := item.(types.String)
+		if !ok {
+			diags.AddError(
+				"Unexpected Type",
+				"Element in list was not of type types.String",
+			)
+			return nil
+		}
+		if strVal.IsUnknown() || strVal.IsNull() {
+			diags.AddError(
+				"Unknown or null values in list",
+				"Expected all values to be known or not null",
+			)
+			return nil
+		}
+
+		result = append(result, strVal.ValueString())
+	}
+
+	return result
+}
+
+func cleuraTaintListToTaintList(source []cleura.Taint) []Taint {
+	var result []Taint
+
+	for _, t := range source {
+		result = append(result, Taint{
+			Key:    types.StringValue(t.Key),
+			Value:  types.StringValue(t.Value),
+			Effect: types.StringValue(t.Effect),
+		})
+	}
+
+	return result
+}
+
+func createWorkerRequestV1(ctx context.Context, workerGroup workerGroupModelV1) (cleura.WorkerRequest, diag.Diagnostics) {
+	var diags diag.Diagnostics
+	var request cleura.WorkerRequest
+
+	minNodes, err := int16Downcast(workerGroup.MinNodes.ValueInt64())
+	// Downcast min_nodes from Terraform Int64 type
+	if err != nil {
+		diags.AddError("Could not downcast min_nodes value", err.Error())
+		return cleura.WorkerRequest{}, diags
+	}
+
+	// Downcast max_nodes from Terraform Int64 type
+	maxNodes, err := int16Downcast(workerGroup.MaxNodes.ValueInt64())
+	if err != nil {
+		diags.AddError("Could not downcast max_nodes value", err.Error())
+		return cleura.WorkerRequest{}, diags
+	}
+
+	annotations := make([]cleura.KeyValuePair, 0)
+	annotationsMap := mapValueToStringMap(workerGroup.Annotations, &diags)
+	if diags.HasError() {
+		return cleura.WorkerRequest{}, diags
+	}
+	for key, value := range annotationsMap {
+		annotations = append(annotations, cleura.KeyValuePair{
+			Key:   key,
+			Value: value,
+		})
+	}
+
+	labels := make([]cleura.KeyValuePair, 0)
+	labelsMap := mapValueToStringMap(workerGroup.Labels, &diags)
+	if diags.HasError() {
+		return cleura.WorkerRequest{}, diags
+	}
+	for key, value := range labelsMap {
+		labels = append(labels, cleura.KeyValuePair{
+			Key:   key,
+			Value: value,
+		})
+	}
+
+	taintList := listValueToTaintList(ctx, workerGroup.Taints, &diags)
+	if diags.HasError() {
+		return cleura.WorkerRequest{}, diags
+	}
+
+	taints := make([]cleura.Taint, 0)
+	for _, t := range taintList {
+		taints = append(taints, cleura.Taint{
+			Key:    t.Key.ValueString(),
+			Value:  t.Value.ValueString(),
+			Effect: t.Effect.ValueString(),
+		})
+	}
+
+	zones := listStringToStringSlice(workerGroup.Zones, &diags)
+	if diags.HasError() {
+		return cleura.WorkerRequest{}, diags
+	}
+
+	request = cleura.WorkerRequest{
+		Name:    workerGroup.WorkerGroupName.ValueString(),
+		Minimum: minNodes,
+		Maximum: maxNodes,
+		Machine: cleura.MachineDetails{
+			Type: workerGroup.MachineType.ValueString(),
+			Image: cleura.ImageDetails{
+				Name:    workerGroup.ImageName.ValueString(),
+				Version: workerGroup.ImageVersion.ValueString(),
+			},
+		},
+		Volume: cleura.VolumeDetails{
+			Size: workerGroup.VolumeSize.ValueString(),
+		},
+		Annotations: annotations,
+		Labels:      labels,
+		Taints:      taints,
+		Zones:       zones,
+	}
+
+	return request, diags
+}
+
+func cleuraWorkerToObjectValue(ctx context.Context, worker cleura.WorkerUpdateResponse) (types.Object, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	annotations, err := types.MapValueFrom(ctx, types.StringType, worker.Annotations)
+	diags.Append(err...)
+
+	labels, err := types.MapValueFrom(ctx, types.StringType, worker.Labels)
+	diags.Append(err...)
+
+	taints, err := types.ListValueFrom(ctx, types.ObjectType{AttrTypes: taintAttrTypesV0()}, cleuraTaintListToTaintList(worker.Taints))
+	diags.Append(err...)
+
+	zones, err := types.ListValueFrom(ctx, types.StringType, worker.Zones)
+	diags.Append(err...)
+
+	objVal, err := types.ObjectValueFrom(ctx, workerGroupModelAttrTypesV1(), workerGroupModelV1{
+		WorkerGroupName: types.StringValue(worker.Name),
+		MachineType:     types.StringValue(worker.Machine.Type),
+		ImageName:       types.StringValue(worker.Machine.Image.Name),
+		ImageVersion:    types.StringValue(worker.Machine.Image.Version),
+		VolumeSize:      types.StringValue(worker.Volume.Size),
+		MinNodes:        types.Int64Value(int64(worker.Minimum)),
+		MaxNodes:        types.Int64Value(int64(worker.Maximum)),
+		Annotations:     annotations,
+		Labels:          labels,
+		Taints:          taints,
+		Zones:           zones,
+	})
+	diags.Append(err...)
+
+	return objVal, diags
+}
+
+func cleuraWorkerCreateToObjectValue(ctx context.Context, worker cleura.WorkerCreateResponse) (types.Object, diag.Diagnostics) {
+	var diags diag.Diagnostics
+
+	annotationsMap := make(map[string]string)
+	for _, annotation := range worker.Annotations {
+		annotationsMap[annotation.Key] = annotation.Value
+	}
+	annotations, err := types.MapValueFrom(ctx, types.StringType, annotationsMap)
+	diags.Append(err...)
+
+	labelsMap := make(map[string]string)
+	for _, label := range worker.Labels {
+		labelsMap[label.Key] = label.Value
+	}
+	labels, err := types.MapValueFrom(ctx, types.StringType, labelsMap)
+	diags.Append(err...)
+
+	taints, err := types.ListValueFrom(ctx, types.ObjectType{AttrTypes: taintAttrTypesV0()}, cleuraTaintListToTaintList(worker.Taints))
+	diags.Append(err...)
+
+	zones, err := types.ListValueFrom(ctx, types.StringType, worker.Zones)
+	diags.Append(err...)
+
+	objVal, err := types.ObjectValueFrom(ctx, workerGroupModelAttrTypesV1(), workerGroupModelV1{
+		WorkerGroupName: types.StringValue(worker.Name),
+		MachineType:     types.StringValue(worker.Machine.Type),
+		ImageName:       types.StringValue(worker.Machine.Image.Name),
+		ImageVersion:    types.StringValue(worker.Machine.Image.Version),
+		VolumeSize:      types.StringValue(worker.Volume.Size),
+		MinNodes:        types.Int64Value(int64(worker.Minimum)),
+		MaxNodes:        types.Int64Value(int64(worker.Maximum)),
+		Annotations:     annotations,
+		Labels:          labels,
+		Taints:          taints,
+		Zones:           zones,
+	})
+	diags.Append(err...)
+
+	return objVal, diags
 }
 
 // Create creates the resource and sets the initial Terraform state.
@@ -562,79 +1350,28 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
-	// Read the current CloudProfile configuration
-	profile, err := r.client.GetCloudProfile()
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to get profile data",
-			err.Error(),
-		)
-		return
-	}
-
-	// Use the latest Kubernetes version if not set explicitly
-	if plan.K8sVersion.ValueString() == "" {
-		plan.K8sVersion = getLatestK8sVersion(profile)
-	}
-
 	var workerGroups []attr.Value
 	for _, group := range plan.ProviderDetails.WorkerGroups.Elements() {
-		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypes(), group)
+		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypesV1(), group)
 		resp.Diagnostics.Append(diags...)
 		workerGroups = append(workerGroups, objVal)
 	}
 
-	plan.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypes()}, workerGroups)
-	resp.Diagnostics.Append(diags...)
-	if resp.Diagnostics.HasError() {
-		return
-	}
-
 	// Mapping defined workers
-	var clusterWorkers []cleura.Worker
+	var clusterWorkers []cleura.WorkerRequest
 
 	for _, wg := range workerGroups {
-		worker := attrValuesToWorkerGroupModel(wg, &resp.Diagnostics)
+		worker := attrValuesToWorkerGroupModelV1(wg, &resp.Diagnostics)
 		if resp.Diagnostics.HasError() {
 			return
 		}
 
-		// Downcast the int64 value provided by Terraform as a int16, or throw an error if not possible
-		minNodes, err := int16Downcast(worker.MinNodes.ValueInt64())
-		if err != nil {
-			resp.Diagnostics.AddError("Could not downcast min_nodes value", err.Error())
+		workerGroupRequest, diags := createWorkerRequestV1(ctx, worker)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
 			return
 		}
-
-		maxNodes, err := int16Downcast(worker.MaxNodes.ValueInt64())
-		if err != nil {
-			resp.Diagnostics.AddError("Could not downcast max_nodes value", err.Error())
-			return
-		}
-
-		// Use the latest GardenLinux image if not set explicitly
-		machineImageVersion := worker.ImageVersion
-		if machineImageVersion.ValueString() == "" {
-			machineImageVersion = getLatestGardenlinuxVersion(profile)
-		}
-
-		clusterWorkers = append(clusterWorkers, cleura.Worker{
-
-			Name: worker.WorkerGroupName.ValueString(),
-			Machine: cleura.MachineDetails{
-				Type: worker.MachineType.ValueString(),
-				Image: cleura.ImageDetails{
-					Name:    worker.ImageName.ValueString(),
-					Version: machineImageVersion.ValueString(),
-				},
-			},
-			Volume: cleura.VolumeDetails{
-				Size: worker.VolumeSize.ValueString(),
-			},
-			Minimum: minNodes,
-			Maximum: maxNodes,
-		},
-		)
+		clusterWorkers = append(clusterWorkers, workerGroupRequest)
 	}
 	// Mapping hibernation schedules
 	var hibernationSchedules []cleura.HibernationSchedule
@@ -654,7 +1391,7 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 			KubernetesVersion: &cleura.K8sVersion{
 				Version: plan.K8sVersion.ValueString(),
 			},
-			Provider: &cleura.ProviderDetails{
+			Provider: &cleura.ProviderDetailsRequest{
 				InfrastructureConfig: cleura.InfrastructureConfigDetails{
 					FloatingPoolName: plan.ProviderDetails.FloatingPoolName.ValueString(),
 				},
@@ -695,20 +1432,15 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 	// Reset the current worker groups value and store the computed values
 	workerGroups = make([]attr.Value, 0)
 	for _, worker := range shootResponse.Shoot.Provider.Workers {
-		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypes(), workerGroupModel{
-			WorkerGroupName: types.StringValue(worker.Name),
-			MachineType:     types.StringValue(worker.Machine.Type),
-			ImageName:       types.StringValue(worker.Machine.Image.Name),
-			ImageVersion:    types.StringValue(worker.Machine.Image.Version),
-			VolumeSize:      types.StringValue(worker.Volume.Size),
-			MinNodes:        types.Int64Value(int64(worker.Minimum)),
-			MaxNodes:        types.Int64Value(int64(worker.Maximum)),
-		})
+		obj, diags := cleuraWorkerCreateToObjectValue(ctx, worker)
 		resp.Diagnostics.Append(diags...)
-		workerGroups = append(workerGroups, objVal)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		workerGroups = append(workerGroups, obj)
 	}
 
-	plan.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypes()}, workerGroups)
+	plan.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypesV1()}, workerGroups)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -861,12 +1593,12 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 
 	var workerGroups []attr.Value
 	for _, group := range state.ProviderDetails.WorkerGroups.Elements() {
-		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypes(), group)
+		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypesV1(), group)
 		resp.Diagnostics.Append(diags...)
 		workerGroups = append(workerGroups, objVal)
 	}
 
-	state.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypes()}, workerGroups)
+	state.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypesV1()}, workerGroups)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -913,21 +1645,6 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
-	// Read the current CloudProfile configuration
-	profile, err := r.client.GetCloudProfile()
-	if err != nil {
-		resp.Diagnostics.AddError(
-			"Unable to get profile data",
-			err.Error(),
-		)
-		return
-	}
-
-	// Use the latest Kubernetes version if not set explicitly
-	if plan.K8sVersion.ValueString() == "" {
-		plan.K8sVersion = getLatestK8sVersion(profile)
-	}
-
 	if !reflect.DeepEqual(plan.HibernationSchedules, currentState.HibernationSchedules) || !reflect.DeepEqual(plan.K8sVersion, currentState.K8sVersion) {
 		tflog.Debug(ctx, "Hibernation schedules or K8s version changed")
 
@@ -951,7 +1668,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 			},
 		}
 
-		_, err = r.client.UpdateShootCluster(plan.GardenerDomain.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), plan.Name.ValueString(), clusterUpdateRequest)
+		_, err := r.client.UpdateShootCluster(plan.GardenerDomain.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), plan.Name.ValueString(), clusterUpdateRequest)
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"Error updating shoot cluster",
@@ -966,14 +1683,14 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 
 	var plannedWorkerGroups []attr.Value
 	for _, group := range plan.ProviderDetails.WorkerGroups.Elements() {
-		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypes(), group)
+		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypesV1(), group)
 		resp.Diagnostics.Append(diags...)
 		plannedWorkerGroups = append(plannedWorkerGroups, objVal)
 	}
 
 	var currentWorkerGroups []attr.Value
 	for _, group := range currentState.ProviderDetails.WorkerGroups.Elements() {
-		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypes(), group)
+		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypesV1(), group)
 		resp.Diagnostics.Append(diags...)
 		currentWorkerGroups = append(currentWorkerGroups, objVal)
 	}
@@ -985,41 +1702,14 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 
 	tflog.Debug(ctx, fmt.Sprintf("modify: %+v, create: %+v, delete: %+v, plan: %+v, state: %+v", wgModify, wgCreate, wgDelete, plan.ProviderDetails.WorkerGroups, currentState.ProviderDetails.WorkerGroups))
 	for _, wg := range wgModify {
-		minNodes, err := int16Downcast(wg.MinNodes.ValueInt64())
-		if err != nil {
-			resp.Diagnostics.AddError("Could not downcast min_nodes value", err.Error())
+		// Create a request for the workergroup to modify
+		workerGroupRequest, diags := createWorkerRequestV1(ctx, wg)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
 			return
 		}
 
-		maxNodes, err := int16Downcast(wg.MaxNodes.ValueInt64())
-		if err != nil {
-			resp.Diagnostics.AddError("Could not downcast max_nodes value", err.Error())
-			return
-		}
-
-		// Use the latest GardenLinux image if not set explicitly
-		machineImageVersion := wg.ImageVersion
-		if machineImageVersion.ValueString() == "" {
-			machineImageVersion = getLatestGardenlinuxVersion(profile)
-		}
-
-		worker := cleura.WorkerGroupRequest{
-			Worker: cleura.Worker{
-				Minimum: minNodes,
-				Maximum: maxNodes,
-				Machine: cleura.MachineDetails{
-					Type: wg.MachineType.ValueString(),
-					Image: cleura.ImageDetails{
-						Name:    wg.ImageName.ValueString(),
-						Version: machineImageVersion.ValueString(),
-					},
-				},
-				Volume: cleura.VolumeDetails{
-					Size: wg.VolumeSize.ValueString(),
-				},
-			},
-		}
-		_, err = r.client.UpdateWorkerGroup(plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), wg.WorkerGroupName.ValueString(), worker)
+		_, err := r.client.UpdateWorkerGroup(plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), wg.WorkerGroupName.ValueString(), cleura.WorkerGroupRequest{Worker: workerGroupRequest})
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"API Error Updating Worker Group",
@@ -1030,42 +1720,13 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 
 	}
 	for _, wg := range wgCreate {
-		minNodes, err := int16Downcast(wg.MinNodes.ValueInt64())
-		if err != nil {
-			resp.Diagnostics.AddError("Could not downcast min_nodes value", err.Error())
+		workerGroupRequest, diags := createWorkerRequestV1(ctx, wg)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
 			return
 		}
 
-		maxNodes, err := int16Downcast(wg.MaxNodes.ValueInt64())
-		if err != nil {
-			resp.Diagnostics.AddError("Could not downcast max_nodes value", err.Error())
-			return
-		}
-
-		// Use the latest GardenLinux image if not set explicitly
-		machineImageVersion := wg.ImageVersion
-		if machineImageVersion.ValueString() == "" {
-			machineImageVersion = getLatestGardenlinuxVersion(profile)
-		}
-
-		worker := cleura.WorkerGroupRequest{
-			Worker: cleura.Worker{
-				Name:    wg.WorkerGroupName.ValueString(),
-				Minimum: minNodes,
-				Maximum: maxNodes,
-				Machine: cleura.MachineDetails{
-					Type: wg.MachineType.ValueString(),
-					Image: cleura.ImageDetails{
-						Name:    wg.ImageName.ValueString(),
-						Version: machineImageVersion.ValueString(),
-					},
-				},
-				Volume: cleura.VolumeDetails{
-					Size: wg.VolumeSize.ValueString(),
-				},
-			},
-		}
-		_, err = r.client.AddWorkerGroup(plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), worker)
+		_, err := r.client.AddWorkerGroup(plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), cleura.WorkerGroupRequest{Worker: workerGroupRequest})
 		if err != nil {
 			resp.Diagnostics.AddError(
 				"API Error Adding Worker Group",
@@ -1088,7 +1749,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 
 	}
 	// Wait cluster ready after update
-	err = clusterReconcileWaiter(r.client, ctx, createTimeout, plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
+	err := clusterReconcileWaiter(r.client, ctx, createTimeout, plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
 
@@ -1115,20 +1776,15 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	var workerGroups []attr.Value
 
 	for _, worker := range clusterUpdateResp.Spec.Provider.Workers {
-		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypes(), workerGroupModel{
-			WorkerGroupName: types.StringValue(worker.Name),
-			MachineType:     types.StringValue(worker.Machine.Type),
-			ImageName:       types.StringValue(worker.Machine.Image.Name),
-			ImageVersion:    types.StringValue(worker.Machine.Image.Version),
-			VolumeSize:      types.StringValue(worker.Volume.Size),
-			MinNodes:        types.Int64Value(int64(worker.Minimum)),
-			MaxNodes:        types.Int64Value(int64(worker.Maximum)),
-		})
+		obj, diags := cleuraWorkerToObjectValue(ctx, worker)
 		resp.Diagnostics.Append(diags...)
-		workerGroups = append(workerGroups, objVal)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		workerGroups = append(workerGroups, obj)
 	}
 
-	plan.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypes()}, workerGroups)
+	plan.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypesV1()}, workerGroups)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -1190,12 +1846,12 @@ func (r *shootClusterResource) Delete(ctx context.Context, req resource.DeleteRe
 	}
 }
 
-func getCreateModifyDeleteWorkgroups(wgsPlan []workerGroupModel, wgsState []workerGroupModel) (wgModify []workerGroupModel, wgCreate []workerGroupModel, wgDelete []workerGroupModel) {
-	stateMap := make(map[string]workerGroupModel)
+func getCreateModifyDeleteWorkgroups(wgsPlan []workerGroupModelV1, wgsState []workerGroupModelV1) (wgModify []workerGroupModelV1, wgCreate []workerGroupModelV1, wgDelete []workerGroupModelV1) {
+	stateMap := make(map[string]workerGroupModelV1)
 	for i, wg := range wgsState {
 		stateMap[wg.WorkerGroupName.ValueString()] = wgsState[i]
 	}
-	planMap := make(map[string]workerGroupModel)
+	planMap := make(map[string]workerGroupModelV1)
 	for i, wg := range wgsPlan {
 		planMap[wg.WorkerGroupName.ValueString()] = wgsPlan[i]
 	}
@@ -1253,30 +1909,27 @@ func (r *shootClusterResource) ImportState(ctx context.Context, req resource.Imp
 	state.K8sVersion = types.StringValue(shootResponse.Spec.Kubernetes.Version)
 	state.ProviderDetails.FloatingPoolName = types.StringValue(shootResponse.Spec.Provider.InfrastructureConfig.FloatingPoolName)
 
+	// make an attr.Value slice and fill with existing workers
 	var workerGroups []attr.Value
 	for _, group := range state.ProviderDetails.WorkerGroups.Elements() {
-		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypes(), group)
+		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypesV1(), group)
 		resp.Diagnostics.Append(diags...)
 		workerGroups = append(workerGroups, objVal)
 	}
 
+	// add imported worker groups to state
 	for _, worker := range shootResponse.Spec.Provider.Workers {
-		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypes(), workerGroupModel{
-			WorkerGroupName: types.StringValue(worker.Name),
-			MachineType:     types.StringValue(worker.Machine.Type),
-			ImageName:       types.StringValue(worker.Machine.Image.Name),
-			ImageVersion:    types.StringValue(worker.Machine.Image.Version),
-			VolumeSize:      types.StringValue(worker.Volume.Size),
-			MinNodes:        types.Int64Value(int64(worker.Minimum)),
-			MaxNodes:        types.Int64Value(int64(worker.Maximum)),
-		})
+		obj, diags := cleuraWorkerToObjectValue(ctx, worker)
 		resp.Diagnostics.Append(diags...)
-		workerGroups = append(workerGroups, objVal)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+		workerGroups = append(workerGroups, obj)
 	}
 
 	var diags diag.Diagnostics
 
-	state.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypes()}, workerGroups)
+	state.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypesV1()}, workerGroups)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
 		return
