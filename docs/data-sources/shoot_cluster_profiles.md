@@ -53,6 +53,7 @@ output "latest_gardenlinux_image" {
 ### Optional
 
 - `filters` (Attributes) Filter output profile (see [below for nested schema](#nestedatt--filters))
+- `gardener_domain` (String)
 
 ### Read-Only
 

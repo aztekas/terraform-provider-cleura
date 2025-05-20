@@ -94,9 +94,23 @@ Required:
 
 Optional:
 
+- `annotations` (Map of String) Annotations for taints nodes
 - `image_name` (String) The name of the image of the worker nodes
 - `image_version` (String) The version of the image of the worker nodes
+- `labels` (Map of String) Labels for worker nodes
+- `taints` (Attributes List) Taints for worker nodes (see [below for nested schema](#nestedatt--provider_details--worker_groups--taints))
 - `worker_node_volume_size` (String) The desired size of the volume used for the worker nodes. Example '50Gi'
+- `zones` (List of String) The desired size of the volume used for the worker nodes. Example '50Gi'
+
+<a id="nestedatt--provider_details--worker_groups--taints"></a>
+### Nested Schema for `provider_details.worker_groups.taints`
+
+Required:
+
+- `effect` (String) Effect for taint
+- `key` (String) Key name for taint. Must adhere to Kubernetes key naming specifications
+- `value` (String) Value for taint. Must be within Kubernetes taint value specifications
+
 
 
 
