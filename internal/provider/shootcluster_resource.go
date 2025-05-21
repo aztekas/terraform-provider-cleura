@@ -21,6 +21,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
@@ -213,19 +214,23 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 								},
 								"annotations": schema.MapAttribute{
 									Optional:    true,
+									Computed:    true,
 									Description: "Annotations for taints nodes",
 									ElementType: types.StringType,
 									PlanModifiers: []planmodifier.Map{
 										mapplanmodifier.UseStateForUnknown(),
 									},
+									Default: mapdefault.StaticValue(types.MapNull(types.StringType)),
 								},
 								"labels": schema.MapAttribute{
 									Optional:    true,
+									Computed:    true,
 									Description: "Labels for worker nodes",
 									ElementType: types.StringType,
 									PlanModifiers: []planmodifier.Map{
 										mapplanmodifier.UseStateForUnknown(),
 									},
+									Default: mapdefault.StaticValue(types.MapNull(types.StringType)),
 								},
 								"taints": schema.ListNestedAttribute{
 									Optional:    true,
@@ -435,6 +440,10 @@ func (r *shootClusterResource) UpgradeState(ctx context.Context) map[int64]resou
 					priorStateData.Region.ValueString(),
 					priorStateData.Project.ValueString(),
 				)
+				if err != nil {
+					resp.Diagnostics.AddError("Failed to get shoot cluster during state upgrade", err.Error())
+					return
+				}
 
 				runtimeWorkerGroup := make(map[string]cleura.WorkerUpdateResponse)
 				for _, worker := range clusterResp.Spec.Provider.Workers {
@@ -820,6 +829,15 @@ func (r *shootClusterResource) ModifyPlan(ctx context.Context, req resource.Modi
 		if resp.Diagnostics.HasError() {
 			return
 		}
+		// // If no annotations are set, default to an empty value
+		// if len(worker.Annotations.Elements()) < 1 {
+		// 	worker.Annotations = types.MapNull(types.StringType)
+		// }
+
+		// // If no annotations are set, default to an empty value
+		// if len(worker.Labels.Elements()) < 1 {
+		// 	worker.Labels = types.MapNull(types.StringType)
+		// }
 
 		// Use the latest GardenLinux image if not set explicitly
 		if worker.ImageVersion.ValueString() == "" {
@@ -1261,7 +1279,6 @@ func createWorkerRequestV1(ctx context.Context, workerGroup workerGroupModelV1) 
 
 func cleuraWorkerToObjectValue(ctx context.Context, worker cleura.WorkerUpdateResponse) (types.Object, diag.Diagnostics) {
 	var diags diag.Diagnostics
-
 	annotations, err := types.MapValueFrom(ctx, types.StringType, worker.Annotations)
 	diags.Append(err...)
 
@@ -1295,16 +1312,22 @@ func cleuraWorkerToObjectValue(ctx context.Context, worker cleura.WorkerUpdateRe
 func cleuraWorkerCreateToObjectValue(ctx context.Context, worker cleura.WorkerCreateResponse) (types.Object, diag.Diagnostics) {
 	var diags diag.Diagnostics
 
-	annotationsMap := make(map[string]string)
-	for _, annotation := range worker.Annotations {
-		annotationsMap[annotation.Key] = annotation.Value
+	var annotationsMap map[string]string
+	if len(worker.Annotations) > 0 {
+		annotationsMap := make(map[string]string)
+		for _, annotation := range worker.Annotations {
+			annotationsMap[annotation.Key] = annotation.Value
+		}
 	}
 	annotations, err := types.MapValueFrom(ctx, types.StringType, annotationsMap)
 	diags.Append(err...)
 
-	labelsMap := make(map[string]string)
-	for _, label := range worker.Labels {
-		labelsMap[label.Key] = label.Value
+	var labelsMap map[string]string
+	if len(worker.Labels) > 0 {
+		labelsMap := make(map[string]string)
+		for _, label := range worker.Labels {
+			labelsMap[label.Key] = label.Value
+		}
 	}
 	labels, err := types.MapValueFrom(ctx, types.StringType, labelsMap)
 	diags.Append(err...)
