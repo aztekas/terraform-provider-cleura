@@ -829,15 +829,6 @@ func (r *shootClusterResource) ModifyPlan(ctx context.Context, req resource.Modi
 		if resp.Diagnostics.HasError() {
 			return
 		}
-		// // If no annotations are set, default to an empty value
-		// if len(worker.Annotations.Elements()) < 1 {
-		// 	worker.Annotations = types.MapNull(types.StringType)
-		// }
-
-		// // If no annotations are set, default to an empty value
-		// if len(worker.Labels.Elements()) < 1 {
-		// 	worker.Labels = types.MapNull(types.StringType)
-		// }
 
 		// Use the latest GardenLinux image if not set explicitly
 		if worker.ImageVersion.ValueString() == "" {
@@ -1314,7 +1305,7 @@ func cleuraWorkerCreateToObjectValue(ctx context.Context, worker cleura.WorkerCr
 
 	var annotationsMap map[string]string
 	if len(worker.Annotations) > 0 {
-		annotationsMap := make(map[string]string)
+		annotationsMap = make(map[string]string)
 		for _, annotation := range worker.Annotations {
 			annotationsMap[annotation.Key] = annotation.Value
 		}
@@ -1324,7 +1315,7 @@ func cleuraWorkerCreateToObjectValue(ctx context.Context, worker cleura.WorkerCr
 
 	var labelsMap map[string]string
 	if len(worker.Labels) > 0 {
-		labelsMap := make(map[string]string)
+		labelsMap = make(map[string]string)
 		for _, label := range worker.Labels {
 			labelsMap[label.Key] = label.Value
 		}
@@ -1781,6 +1772,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 		)
 		return
 	}
+
 	clusterUpdateResp, err := r.client.GetShootCluster(plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
 	if err != nil {
 		resp.Diagnostics.AddError(
