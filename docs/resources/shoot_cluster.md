@@ -63,6 +63,7 @@ output "cluster" {
 - `gardener_domain` (String) Gardener domain. Defaults to 'public'
 - `hibernation_schedules` (Attributes List) An array containing desired hibernation schedules (see [below for nested schema](#nestedatt--hibernation_schedules))
 - `kubernetes_version` (String) One of the currently available Kubernetes versions
+- `maintenance` (Attributes) Configure maintenance properties (see [below for nested schema](#nestedatt--maintenance))
 - `timeouts` (Attributes) (see [below for nested schema](#nestedatt--timeouts))
 
 ### Read-Only
@@ -121,6 +122,17 @@ Optional:
 
 - `end` (String) The time when the hibernation should end in Cron time format
 - `start` (String) The time when the hibernation should start in Cron time format
+
+
+<a id="nestedatt--maintenance"></a>
+### Nested Schema for `maintenance`
+
+Optional:
+
+- `auto_update_kubernetes` (Boolean) Toggle wether or not to allow automatic kubernetes upgrades. Defaults to 'true'
+- `auto_update_machine_image` (Boolean) Toggle wether or not to allow automatic machine image upgrades. Defaults to 'true'
+- `time_window_begin` (String) Set when time windows for upgrades should begin, defaults to '000000+0100'
+- `time_window_end` (String) Set when time windows for upgrades should end, defaults to '010000+0100'
 
 
 <a id="nestedatt--timeouts"></a>

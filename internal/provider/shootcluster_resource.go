@@ -20,6 +20,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
@@ -91,6 +92,26 @@ func (r *shootClusterResource) ValidateConfig(ctx context.Context, req resource.
 			)
 		}
 
+	}
+
+	var diags diag.Diagnostics
+	maintenance := attrValuesToMaintenanceModelV0(config.Maintenance, &resp.Diagnostics)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
+	if (!maintenance.TimeWindowBegin.IsNull() && maintenance.TimeWindowEnd.IsNull()) ||
+		(maintenance.TimeWindowBegin.IsNull() && !maintenance.TimeWindowEnd.IsNull()) {
+		resp.Diagnostics.AddError(
+			"Missing Attribute Configuration",
+			"Both `time_window_begin` and ´time_window_end´ must be set in the configuration.",
+		)
+	} else if maintenance.TimeWindowBegin.Equal(maintenance.TimeWindowEnd) && maintenance.TimeWindowBegin.ValueString() != "" {
+		resp.Diagnostics.AddError(
+			"Invalid Attribute Configuration",
+			"`time_window_begin` and ´time_window_end´ can not be equal.",
+		)
 	}
 	// If nothing matched, return without warning.
 
@@ -285,6 +306,37 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 							Optional:    true,
 							Description: "The time when the hibernation should end in Cron time format",
 						},
+					},
+				},
+			},
+			"maintenance": schema.SingleNestedAttribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Configure maintenance properties",
+				Attributes: map[string]schema.Attribute{
+					"auto_update_kubernetes": schema.BoolAttribute{
+						Optional:    true,
+						Computed:    true,
+						Description: "Toggle wether or not to allow automatic kubernetes upgrades. Defaults to 'true'",
+						Default:     booldefault.StaticBool(true),
+					},
+					"auto_update_machine_image": schema.BoolAttribute{
+						Optional:    true,
+						Computed:    true,
+						Description: "Toggle wether or not to allow automatic machine image upgrades. Defaults to 'true'",
+						Default:     booldefault.StaticBool(true),
+					},
+					"time_window_begin": schema.StringAttribute{
+						Optional:    true,
+						Computed:    true,
+						Description: "Set when time windows for upgrades should begin, defaults to '000000+0100'",
+						Default:     stringdefault.StaticString("000000+0100"),
+					},
+					"time_window_end": schema.StringAttribute{
+						Optional:    true,
+						Computed:    true,
+						Description: "Set when time windows for upgrades should end, defaults to '010000+0100'",
+						Default:     stringdefault.StaticString("010000+0100"),
 					},
 				},
 			},
@@ -841,6 +893,30 @@ func (r *shootClusterResource) ModifyPlan(ctx context.Context, req resource.Modi
 		}
 	}
 
+	maintenance := attrValuesToMaintenanceModelV0(plan.Maintenance, &resp.Diagnostics)
+
+	if k8s := maintenance.AutoUpdateKubernetes; k8s.IsNull() || k8s.IsUnknown() {
+		maintenance.AutoUpdateKubernetes = types.BoolValue(true)
+	}
+
+	if machineImage := maintenance.AutoUpdateMachineImage; machineImage.IsNull() || machineImage.IsUnknown() {
+		maintenance.AutoUpdateMachineImage = types.BoolValue(true)
+	}
+
+	if begin := maintenance.TimeWindowBegin; begin.IsNull() || begin.IsUnknown() {
+		maintenance.TimeWindowBegin = types.StringValue("000000+0100")
+	}
+
+	if end := maintenance.TimeWindowEnd; end.IsNull() || end.IsUnknown() {
+		maintenance.TimeWindowEnd = types.StringValue("010000+0100")
+	}
+
+	plan.Maintenance, diags = types.ObjectValueFrom(ctx, maintenanceAttrTypesV0(), maintenance)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	// Set the updated objects to the plan
 	plan.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypesV1()}, workerGroups)
 	resp.Diagnostics.Append(diags...)
@@ -878,6 +954,7 @@ type shootClusterResourceModelV1 struct {
 	ProviderDetails      shootProviderDetailsModel  `tfsdk:"provider_details"`
 	Hibernated           types.Bool                 `tfsdk:"hibernated"`
 	HibernationSchedules []hibernationScheduleModel `tfsdk:"hibernation_schedules"`
+	Maintenance          types.Object               `tfsdk:"maintenance"`
 	// Conditions          []shootClusterConditionsModel          `tfsdk:"conditions"`
 	// AdvertisedAddresses []shootClusterAdvertisedAddressesModel `tfsdk:"advertised_addresses"`
 }
@@ -885,6 +962,13 @@ type shootClusterResourceModelV1 struct {
 type hibernationScheduleModel struct {
 	Start types.String `tfsdk:"start"`
 	End   types.String `tfsdk:"end"`
+}
+
+type maintenanceModel struct {
+	AutoUpdateKubernetes   types.Bool   `tfsdk:"auto_update_kubernetes"`
+	AutoUpdateMachineImage types.Bool   `tfsdk:"auto_update_machine_image"`
+	TimeWindowBegin        types.String `tfsdk:"time_window_begin"`
+	TimeWindowEnd          types.String `tfsdk:"time_window_end"`
 }
 
 type shootProviderDetailsModel struct {
@@ -953,6 +1037,15 @@ func taintAttrTypesV0() map[string]attr.Type {
 	}
 }
 
+func maintenanceAttrTypesV0() map[string]attr.Type {
+	return map[string]attr.Type{
+		"auto_update_kubernetes":    types.BoolType,
+		"auto_update_machine_image": types.BoolType,
+		"time_window_begin":         types.StringType,
+		"time_window_end":           types.StringType,
+	}
+}
+
 func int16Downcast(num int64) (int16, error) {
 	if num > math.MaxInt16 || num < math.MinInt16 {
 		return 0, fmt.Errorf("value %d cannot be downcasted to int16 as it would overflow", num)
@@ -992,6 +1085,23 @@ func getInt64Attr(key string, value attr.Value) (types.Int64, diag.Diagnostics) 
 		return attribute, nil
 	} else {
 		return types.Int64Null(), nil
+	}
+}
+
+func getBoolAttr(key string, value attr.Value) (types.Bool, diag.Diagnostics) {
+	objVal, ok := value.(types.Object)
+	var diags diag.Diagnostics
+
+	if !ok {
+		diags.AddError("Invalid Value", "Expected Object in list")
+		return types.BoolNull(), diags
+	}
+
+	attributes := objVal.Attributes()
+	if attribute, ok := attributes[key].(types.Bool); ok {
+		return attribute, nil
+	} else {
+		return types.BoolNull(), nil
 	}
 }
 
@@ -1094,6 +1204,25 @@ func attrValuesToWorkerGroupModelSlice(values []attr.Value, diags *diag.Diagnost
 	}
 
 	return result
+}
+
+func attrValuesToMaintenanceModelV0(value attr.Value, diags *diag.Diagnostics) maintenanceModel {
+	var err diag.Diagnostics
+	maintenance := maintenanceModel{}
+
+	maintenance.AutoUpdateKubernetes, err = getBoolAttr("auto_update_kubernetes", value)
+	diags.Append(err...)
+
+	maintenance.AutoUpdateMachineImage, err = getBoolAttr("auto_update_machine_image", value)
+	diags.Append(err...)
+
+	maintenance.TimeWindowBegin, err = getStringAttr("time_window_begin", value)
+	diags.Append(err...)
+
+	maintenance.TimeWindowEnd, err = getStringAttr("time_window_end", value)
+	diags.Append(err...)
+
+	return maintenance
 }
 
 func mapValueToStringMap(source types.Map, diags *diag.Diagnostics) map[string]string {
@@ -1398,6 +1527,12 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 	}
 	tflog.Debug(ctx, fmt.Sprintf("Here's hibernation schedules: %+v", hibernationSchedules))
 
+	maintenance := attrValuesToMaintenanceModelV0(plan.Maintenance, &resp.Diagnostics)
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	//------------------------------
 	clusterRequest := cleura.ShootClusterRequest{
 		Shoot: cleura.ShootClusterRequestConfig{
@@ -1410,6 +1545,16 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 					FloatingPoolName: plan.ProviderDetails.FloatingPoolName.ValueString(),
 				},
 				Workers: clusterWorkers,
+			},
+			Maintenance: &cleura.MaintenanceDetails{
+				AutoUpdate: &cleura.AutoUpdateDetails{
+					KubernetesVersion:   maintenance.AutoUpdateKubernetes.ValueBool(),
+					MachineImageVersion: maintenance.AutoUpdateMachineImage.ValueBool(),
+				},
+				TimeWindow: &cleura.TimeWindowDetails{
+					Begin: maintenance.TimeWindowBegin.ValueString(),
+					End:   maintenance.TimeWindowEnd.ValueString(),
+				},
 			},
 		},
 	}
@@ -1517,6 +1662,9 @@ func clusterReadyOperationWaiter(client *cleura.Client, ctx context.Context, max
 		clusterResp, err := client.GetShootCluster(gardenerDomain, clusterName, clusterRegion, clusterProject)
 		if err != nil {
 			return backoff.Permanent(err)
+		}
+		if len(clusterResp.Status.Conditions) < 1 {
+			return errors.New("cluster has no events yet")
 		}
 		for _, cond := range clusterResp.Status.Conditions {
 			if cond.Status != "True" {
@@ -1630,6 +1778,18 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 	state.HibernationSchedules = hibSchedules
 	tflog.Debug(ctx, fmt.Sprintf("Hibschedules after state: %v", state.HibernationSchedules))
 
+	// Write existing maintenance configuration to state
+	state.Maintenance, diags = types.ObjectValueFrom(ctx, maintenanceAttrTypesV0(), maintenanceModel{
+		AutoUpdateKubernetes:   types.BoolValue(shootResponse.Spec.Maintenance.AutoUpdate.KubernetesVersion),
+		AutoUpdateMachineImage: types.BoolValue(shootResponse.Spec.Maintenance.AutoUpdate.MachineImageVersion),
+		TimeWindowBegin:        types.StringValue(shootResponse.Spec.Maintenance.TimeWindow.Begin),
+		TimeWindowEnd:          types.StringValue(shootResponse.Spec.Maintenance.TimeWindow.End),
+	})
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+
 	// Set refreshed state
 	diags = resp.State.Set(ctx, &state)
 	resp.Diagnostics.Append(diags...)
@@ -1659,7 +1819,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
-	if !reflect.DeepEqual(plan.HibernationSchedules, currentState.HibernationSchedules) || !reflect.DeepEqual(plan.K8sVersion, currentState.K8sVersion) {
+	if !reflect.DeepEqual(plan.HibernationSchedules, currentState.HibernationSchedules) || !plan.Maintenance.Equal(currentState.Maintenance) || !reflect.DeepEqual(plan.K8sVersion, currentState.K8sVersion) {
 		tflog.Debug(ctx, "Hibernation schedules or K8s version changed")
 
 		hibernationSchedules := []cleura.HibernationSchedule{}
@@ -1671,6 +1831,12 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 			)
 		}
 
+		maintenance := attrValuesToMaintenanceModelV0(plan.Maintenance, &resp.Diagnostics)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
 		clusterUpdateRequest := cleura.ShootClusterRequest{
 			Shoot: cleura.ShootClusterRequestConfig{
 				KubernetesVersion: &cleura.K8sVersion{
@@ -1678,6 +1844,16 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 				},
 				Hibernation: &cleura.HibernationSchedules{
 					HibernationSchedules: hibernationSchedules,
+				},
+				Maintenance: &cleura.MaintenanceDetails{
+					AutoUpdate: &cleura.AutoUpdateDetails{
+						KubernetesVersion:   maintenance.AutoUpdateKubernetes.ValueBool(),
+						MachineImageVersion: maintenance.AutoUpdateMachineImage.ValueBool(),
+					},
+					TimeWindow: &cleura.TimeWindowDetails{
+						Begin: maintenance.TimeWindowBegin.ValueString(),
+						End:   maintenance.TimeWindowEnd.ValueString(),
+					},
 				},
 			},
 		}
@@ -1687,6 +1863,14 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 			resp.Diagnostics.AddError(
 				"Error updating shoot cluster",
 				"Could not update cluster, unexpected error: "+err.Error(),
+			)
+			return
+		}
+		err = clusterReconcileWaiter(r.client, ctx, createTimeout, plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"API Error while waiting for cluster to become ready (modify)",
+				fmt.Sprintf("... details ... %s", err),
 			)
 			return
 		}
@@ -1732,6 +1916,14 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 			return
 		}
 
+		err = clusterReconcileWaiter(r.client, ctx, createTimeout, plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"API Error while waiting for cluster to become ready (modify)",
+				fmt.Sprintf("... details ... %s", err),
+			)
+			return
+		}
 	}
 	for _, wg := range wgCreate {
 		workerGroupRequest, diags := createWorkerRequestV1(ctx, wg)
@@ -1749,9 +1941,17 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 			return
 		}
 
+		err = clusterReconcileWaiter(r.client, ctx, createTimeout, plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"API Error while waiting for cluster to become ready (modify)",
+				fmt.Sprintf("... details ... %s", err),
+			)
+			return
+		}
+
 	}
 	for _, wg := range wgDelete {
-
 		_, err := r.client.DeleteWorkerGroup(plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), wg.WorkerGroupName.ValueString())
 		if err != nil {
 			resp.Diagnostics.AddError(
@@ -1761,16 +1961,14 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 			return
 		}
 
-	}
-	// Wait cluster ready after update
-	err := clusterReconcileWaiter(r.client, ctx, createTimeout, plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
-	if err != nil {
-		resp.Diagnostics.AddError(
-
-			"API Error Shoot Cluster Resource status check",
-			fmt.Sprintf("... details ... %s", err),
-		)
-		return
+		err = clusterReconcileWaiter(r.client, ctx, createTimeout, plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
+		if err != nil {
+			resp.Diagnostics.AddError(
+				"API Error while waiting for cluster to become ready (modify)",
+				fmt.Sprintf("... details ... %s", err),
+			)
+			return
+		}
 	}
 
 	clusterUpdateResp, err := r.client.GetShootCluster(plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
@@ -1943,6 +2141,18 @@ func (r *shootClusterResource) ImportState(ctx context.Context, req resource.Imp
 	}
 
 	var diags diag.Diagnostics
+
+	// Write existing maintenance configuration to state
+	state.Maintenance, diags = types.ObjectValueFrom(ctx, maintenanceAttrTypesV0(), maintenanceModel{
+		AutoUpdateKubernetes:   types.BoolValue(shootResponse.Spec.Maintenance.AutoUpdate.KubernetesVersion),
+		AutoUpdateMachineImage: types.BoolValue(shootResponse.Spec.Maintenance.AutoUpdate.MachineImageVersion),
+		TimeWindowBegin:        types.StringValue(shootResponse.Spec.Maintenance.TimeWindow.Begin),
+		TimeWindowEnd:          types.StringValue(shootResponse.Spec.Maintenance.TimeWindow.End),
+	})
+	resp.Diagnostics.Append(diags...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
 
 	state.ProviderDetails.WorkerGroups, diags = types.ListValueFrom(ctx, types.ObjectType{AttrTypes: workerGroupModelAttrTypesV1()}, workerGroups)
 	resp.Diagnostics.Append(diags...)

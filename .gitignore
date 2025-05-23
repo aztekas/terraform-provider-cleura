@@ -36,11 +36,12 @@ terraform-provider-cleura
 gardener.auto.tfvars
 .terraform.lock.hcl
 __debug_bin*
+*.disabled
 
 
 # Test exclusions
 !command/test-fixtures/**/*.tfstate
 !command/test-fixtures/**/.terraform/
-
+!internal/provider/testdata/TestAccShootResource/*/main.tf
 # Keep windows files with windows line endings
 *.winfile eol=crlf

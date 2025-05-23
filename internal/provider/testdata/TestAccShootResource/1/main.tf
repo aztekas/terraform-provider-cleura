@@ -1,3 +1,10 @@
+# STEP 1:
+# Creates shoot cluster managing one worker group, with:
+#   * Annotations
+#   * Labels
+#   * Taints
+#   * Zones
+# Set maintenance configuration with custom window times and machine image config to false
 
 resource "cleura_shoot_cluster" "test" {
   project = var.project-id
@@ -27,6 +34,11 @@ resource "cleura_shoot_cluster" "test" {
         ]
       },
     ]
+  }
+  maintenance = {
+    auto_update_machine_image = false
+    time_window_begin = "050000+0100"
+    time_window_end = "060000+0100"
   }
 }
 
