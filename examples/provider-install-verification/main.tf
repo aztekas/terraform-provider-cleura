@@ -9,7 +9,8 @@ terraform {
 provider "cleura" {}
 
 data "cleura_shoot_cluster" "example" {
-  name    = "cluster_name"
-  project = "project_id"
-  region  = "region"
+  name            = "cluster_name"
+  project         = "project_id"
+  region          = "region"
+  gardener_domain = "public"
 }

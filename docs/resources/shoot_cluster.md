@@ -20,10 +20,9 @@ data "openstack_identity_project_v3" "gardener_project" {
 }
 
 resource "cleura_shoot_cluster" "test" {
-  project            = data.openstack_identity_project_v3.gardener_project.id
-  region             = "sto2"
-  name               = "my-cluster"
-  kubernetes_version = "1.28.6"
+  project = data.openstack_identity_project_v3.gardener_project.id
+  region  = "sto2"
+  name    = "my-cluster"
   provider_details = {
     worker_groups = [
       {
@@ -44,7 +43,6 @@ resource "cleura_shoot_cluster" "test" {
 }
 output "cluster" {
   value = cleura_shoot_cluster.test
-
 }
 ```
 
@@ -82,6 +80,9 @@ Required:
 Optional:
 
 - `floating_pool_name` (String) The name of the external network to connect to. Defaults to 'ext-net'.
+- `network_id` (String) The id of the internal OpenStack network to connect worker nodes to. Requires replace if modified.
+- `router_id` (String) The id of the OpenStack router to connect the worker subnet to. Requires replace if modified.
+- `worker_cidr` (String) The CIDR to use for worker nodes. Cannot overlap with existing subnets in the selected network. Requires replace if modified.
 
 <a id="nestedatt--provider_details--worker_groups"></a>
 ### Nested Schema for `provider_details.worker_groups`
@@ -101,14 +102,14 @@ Optional:
 - `labels` (Map of String) Labels for worker nodes
 - `taints` (Attributes List) Taints for worker nodes (see [below for nested schema](#nestedatt--provider_details--worker_groups--taints))
 - `worker_node_volume_size` (String) The desired size of the volume used for the worker nodes. Example '50Gi'
-- `zones` (List of String) The desired size of the volume used for the worker nodes. Example '50Gi'
+- `zones` (List of String) List of availability zones worker nodes can be scheduled in. Defaults to ['nova']
 
 <a id="nestedatt--provider_details--worker_groups--taints"></a>
 ### Nested Schema for `provider_details.worker_groups.taints`
 
 Required:
 
-- `effect` (String) Effect for taint
+- `effect` (String) Effect for taint. Possible values are 'NoExecute', 'NoSchedule' and 'PreferNoSchedule'
 - `key` (String) Key name for taint. Must adhere to Kubernetes key naming specifications
 - `value` (String) Value for taint. Must be within Kubernetes taint value specifications
 
@@ -149,6 +150,6 @@ Optional:
 Import is supported using the following syntax:
 
 ```shell
-# Shoot cluster can be imported by specifying sequentially cluster_name,region_name,project_id
-terraform import cleura_shoot_cluster.test_import cluster_name, region_name, project_id
+# Shoot cluster can be imported by specifying sequentially gardener_domain,cluster_name,region_name,project_id
+terraform import cleura_shoot_cluster.test_import gardener_domain,cluster_name,region_name,project_id
 ```

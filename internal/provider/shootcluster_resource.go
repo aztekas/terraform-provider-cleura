@@ -113,8 +113,16 @@ func (r *shootClusterResource) ValidateConfig(ctx context.Context, req resource.
 			"`time_window_begin` and ´time_window_end´ can not be equal.",
 		)
 	}
-	// If nothing matched, return without warning.
 
+	if (!config.ProviderDetails.NetworkId.IsNull() && config.ProviderDetails.RouterId.IsNull()) ||
+		(config.ProviderDetails.NetworkId.IsNull() && !config.ProviderDetails.RouterId.IsNull()) {
+		resp.Diagnostics.AddError(
+			"Missing Attribute Configuration",
+			"Both `network_id` and `router_id` must be set in the configuration.",
+		)
+	}
+
+	// If nothing matched, return without warning.
 }
 
 // Metadata returns the resource type name.
@@ -190,6 +198,33 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 						Computed:    true,
 						Default:     stringdefault.StaticString("ext-net"),
 						Description: "The name of the external network to connect to. Defaults to 'ext-net'.",
+					},
+					"network_id": schema.StringAttribute{
+						Optional:    true,
+						Computed:    true,
+						Description: "The id of the internal OpenStack network to connect worker nodes to. Requires replace if modified.",
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+							stringplanmodifier.UseStateForUnknown(),
+						},
+					},
+					"router_id": schema.StringAttribute{
+						Optional:    true,
+						Computed:    true,
+						Description: "The id of the OpenStack router to connect the worker subnet to. Requires replace if modified.",
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+							stringplanmodifier.UseStateForUnknown(),
+						},
+					},
+					"worker_cidr": schema.StringAttribute{
+						Optional:    true,
+						Computed:    true,
+						Description: "The CIDR to use for worker nodes. Cannot overlap with existing subnets in the selected network. Requires replace if modified.",
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+							stringplanmodifier.UseStateForUnknown(),
+						},
 					},
 					"worker_groups": schema.ListNestedAttribute{
 						Required:    true,
@@ -269,7 +304,7 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 											},
 											"effect": schema.StringAttribute{
 												Required:    true,
-												Description: "Effect for taint",
+												Description: "Effect for taint. Possible values are 'NoExecute', 'NoSchedule' and 'PreferNoSchedule'",
 												Validators:  []validator.String{stringvalidator.OneOf("NoSchedule", "NoExecute", "PreferNoSchedule")},
 											},
 										},
@@ -281,7 +316,7 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 								"zones": schema.ListAttribute{
 									Computed:    true,
 									Optional:    true,
-									Description: "The desired size of the volume used for the worker nodes. Example '50Gi'",
+									Description: "List of availability zones worker nodes can be scheduled in. Defaults to ['nova']",
 									ElementType: types.StringType,
 									PlanModifiers: []planmodifier.List{
 										listplanmodifier.UseStateForUnknown(),
@@ -973,6 +1008,9 @@ type maintenanceModel struct {
 
 type shootProviderDetailsModel struct {
 	FloatingPoolName types.String `tfsdk:"floating_pool_name"`
+	NetworkId        types.String `tfsdk:"network_id"`
+	RouterId         types.String `tfsdk:"router_id"`
+	WorkerCidr       types.String `tfsdk:"worker_cidr"`
 	WorkerGroups     types.List   `tfsdk:"worker_groups"`
 }
 
@@ -1533,6 +1571,20 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 		return
 	}
 
+	network := &cleura.WorkerNetwork{}
+	if plan.ProviderDetails.NetworkId.ValueString() != "" && plan.ProviderDetails.RouterId.ValueString() != "" {
+		network = &cleura.WorkerNetwork{
+			Id: plan.ProviderDetails.NetworkId.ValueString(),
+			Router: cleura.Router{
+				Id: plan.ProviderDetails.RouterId.ValueString(),
+			},
+		}
+	}
+
+	if plan.ProviderDetails.WorkerCidr.ValueString() != "" {
+		network.WorkersCIDR = plan.ProviderDetails.WorkerCidr.ValueString()
+	}
+
 	//------------------------------
 	clusterRequest := cleura.ShootClusterRequest{
 		Shoot: cleura.ShootClusterRequestConfig{
@@ -1543,6 +1595,7 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 			Provider: &cleura.ProviderDetailsRequest{
 				InfrastructureConfig: cleura.InfrastructureConfigDetails{
 					FloatingPoolName: plan.ProviderDetails.FloatingPoolName.ValueString(),
+					Networks:         network,
 				},
 				Workers: clusterWorkers,
 			},
@@ -1587,6 +1640,11 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 	plan.UID = types.StringValue(shootResponse.Shoot.UID)
 	plan.Hibernated = types.BoolValue(shootResponse.Shoot.Hibernation.Enabled)
 	plan.LastUpdated = types.StringValue(time.Now().Format(time.RFC850))
+
+	// Set computed network field
+	plan.ProviderDetails.NetworkId = types.StringValue(shootResponse.Shoot.Provider.InfrastructureConfig.Networks.Id)
+	plan.ProviderDetails.RouterId = types.StringValue(shootResponse.Shoot.Provider.InfrastructureConfig.Networks.Router.Id)
+	plan.ProviderDetails.WorkerCidr = types.StringValue(shootResponse.Shoot.Provider.InfrastructureConfig.Networks.WorkersCIDR)
 
 	// Reset the current worker groups value and store the computed values
 	workerGroups = make([]attr.Value, 0)
@@ -1752,6 +1810,11 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 	state.UID = types.StringValue(shootResponse.Metadata.UID)
 	state.Hibernated = types.BoolValue(shootResponse.Status.Hibernated)
 	state.K8sVersion = types.StringValue(shootResponse.Spec.Kubernetes.Version)
+
+	// Set computed network field
+	state.ProviderDetails.NetworkId = types.StringValue(shootResponse.Spec.Provider.InfrastructureConfig.Networks.Id)
+	state.ProviderDetails.RouterId = types.StringValue(shootResponse.Spec.Provider.InfrastructureConfig.Networks.Router.Id)
+	state.ProviderDetails.WorkerCidr = types.StringValue(shootResponse.Spec.Provider.InfrastructureConfig.Networks.WorkersCIDR)
 
 	var workerGroups []attr.Value
 	for _, group := range state.ProviderDetails.WorkerGroups.Elements() {
@@ -2121,6 +2184,9 @@ func (r *shootClusterResource) ImportState(ctx context.Context, req resource.Imp
 	state.Hibernated = types.BoolValue(shootResponse.Status.Hibernated)
 	state.K8sVersion = types.StringValue(shootResponse.Spec.Kubernetes.Version)
 	state.ProviderDetails.FloatingPoolName = types.StringValue(shootResponse.Spec.Provider.InfrastructureConfig.FloatingPoolName)
+	state.ProviderDetails.NetworkId = types.StringValue(shootResponse.Spec.Provider.InfrastructureConfig.Networks.Id)
+	state.ProviderDetails.RouterId = types.StringValue(shootResponse.Spec.Provider.InfrastructureConfig.Networks.Router.Id)
+	state.ProviderDetails.WorkerCidr = types.StringValue(shootResponse.Spec.Provider.InfrastructureConfig.Networks.WorkersCIDR)
 
 	// make an attr.Value slice and fill with existing workers
 	var workerGroups []attr.Value
