@@ -20,10 +20,9 @@ data "openstack_identity_project_v3" "gardener_project" {
 }
 
 resource "cleura_shoot_cluster" "test" {
-  project            = data.openstack_identity_project_v3.gardener_project.id
-  region             = "sto2"
-  name               = "my-cluster"
-  kubernetes_version = "1.28.6"
+  project = data.openstack_identity_project_v3.gardener_project.id
+  region  = "sto2"
+  name    = "my-cluster"
   provider_details = {
     worker_groups = [
       {
@@ -44,7 +43,6 @@ resource "cleura_shoot_cluster" "test" {
 }
 output "cluster" {
   value = cleura_shoot_cluster.test
-
 }
 ```
 
@@ -152,6 +150,6 @@ Optional:
 Import is supported using the following syntax:
 
 ```shell
-# Shoot cluster can be imported by specifying sequentially cluster_name,region_name,project_id
-terraform import cleura_shoot_cluster.test_import cluster_name, region_name, project_id
+# Shoot cluster can be imported by specifying sequentially gardener_domain,cluster_name,region_name,project_id
+terraform import cleura_shoot_cluster.test_import gardener_domain,cluster_name,region_name,project_id
 ```

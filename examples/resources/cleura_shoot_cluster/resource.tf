@@ -5,10 +5,9 @@ data "openstack_identity_project_v3" "gardener_project" {
 }
 
 resource "cleura_shoot_cluster" "test" {
-  project            = data.openstack_identity_project_v3.gardener_project.id
-  region             = "sto2"
-  name               = "my-cluster"
-  kubernetes_version = "1.28.6"
+  project = data.openstack_identity_project_v3.gardener_project.id
+  region  = "sto2"
+  name    = "my-cluster"
   provider_details = {
     worker_groups = [
       {
@@ -29,5 +28,4 @@ resource "cleura_shoot_cluster" "test" {
 }
 output "cluster" {
   value = cleura_shoot_cluster.test
-
 }
