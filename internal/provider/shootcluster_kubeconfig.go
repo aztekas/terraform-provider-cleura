@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64default"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringdefault"
@@ -109,6 +110,12 @@ func (r *shootClusterKubeconfigResource) Schema(ctx context.Context, _ resource.
 				},
 				Description: "Set the duration (in seconds) for how long the kubeconfig should be valid",
 			},
+			"renew_before": schema.Int64Attribute{
+				Optional:    true,
+				Computed:    true,
+				Description: "Renew kubeconfig N seconds before expiry. Defaults to 300 (5 min)",
+				Default:     int64default.StaticInt64(300),
+			},
 			"config": schema.StringAttribute{
 				Computed:    true,
 				Description: "The kubeconfig generated from the API.",
@@ -143,7 +150,7 @@ func (r *shootClusterKubeconfigResource) ModifyPlan(ctx context.Context, req res
 			return
 		}
 
-		valid_to := plan.Duration.ValueInt64() + generatedAt.Unix()
+		valid_to := (plan.Duration.ValueInt64() - plan.RenewBefore.ValueInt64()) + generatedAt.Unix()
 		now := time.Now().Unix()
 		if now > valid_to {
 			plan.GeneratedAt = types.StringUnknown()
@@ -164,6 +171,7 @@ type shootClusterKubeconfigResourceModel struct {
 	Project        types.String `tfsdk:"project"`
 	GardenerDomain types.String `tfsdk:"gardener_domain"`
 	Duration       types.Int64  `tfsdk:"duration"`
+	RenewBefore    types.Int64  `tfsdk:"renew_before"`
 	Config         types.String `tfsdk:"config"`
 	GeneratedAt    types.String `tfsdk:"generated_at"`
 }
@@ -184,7 +192,6 @@ func (r *shootClusterKubeconfigResource) Create(ctx context.Context, req resourc
 		)
 		return
 	}
-
 	plan.Config = types.StringValue(string(kubeconfig))
 	plan.GeneratedAt = types.StringValue(time.Now().Format(time.RFC3339))
 

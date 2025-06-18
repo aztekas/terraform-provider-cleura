@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"regexp"
 	"strings"
 	"time"
 
@@ -120,6 +121,24 @@ func (r *shootClusterResource) ValidateConfig(ctx context.Context, req resource.
 			"Missing Attribute Configuration",
 			"Both `network_id` and `router_id` must be set in the configuration.",
 		)
+	}
+
+	nameRegex := regexp.MustCompile(`[a-z0-9]([-a-z0-9]*[a-z0-9])?`)
+	// Convert elements to Objects
+	for _, group := range config.ProviderDetails.WorkerGroups.Elements() {
+		objVal, diags := types.ObjectValueFrom(ctx, workerGroupModelAttrTypesV1(), group)
+		resp.Diagnostics.Append(diags...)
+		if resp.Diagnostics.HasError() {
+			return
+		}
+
+		worker := attrValuesToWorkerGroupModelV1(objVal, &resp.Diagnostics)
+		if !nameRegex.Match([]byte(worker.WorkerGroupName.ValueString())) || len(worker.WorkerGroupName.ValueString()) > 6 {
+			resp.Diagnostics.AddError(
+				"Invalid Worker Group Name",
+				"Worker group names must: \n\t1. Only contain lowercase aplhanumeric characters and hyphens\n\t2. Not begin with hyphen or a number\n\t3. Not end with a hyphen \n\t4. Not be longer than 6 characters",
+			)
+		}
 	}
 
 	// If nothing matched, return without warning.
