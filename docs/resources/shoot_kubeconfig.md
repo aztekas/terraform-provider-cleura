@@ -25,6 +25,7 @@ description: |-
 ### Optional
 
 - `gardener_domain` (String) Gardener domain. Defaults to 'public'
+- `renew_before` (Number) Renew kubeconfig N seconds before expiry. Defaults to 300 (5 min)
 
 ### Read-Only
 
