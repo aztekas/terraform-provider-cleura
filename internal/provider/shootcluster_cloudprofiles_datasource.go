@@ -40,6 +40,16 @@ type shootClusterProfileFilters struct {
 	MachineImageFilter *machineImageFilter `tfsdk:"machine_images"`
 }
 
+type cloudProfileZone struct {
+	Name                   types.String `tfsdk:"name"`
+	UnavailableVolumeTypes types.List   `tfsdk:"unavailable_volume_types"`
+}
+
+type shootClusterProfilesRegionModel struct {
+	Name  types.String       `tfsdk:"name"`
+	Zones []cloudProfileZone `tfsdk:"zones"`
+}
+
 type shootClusterProfilesDataSourceModel struct {
 	GardenerDomain     types.String                            `tfsdk:"gardener_domain"`
 	KubernetesLatest   types.String                            `tfsdk:"kubernetes_latest"`
@@ -48,6 +58,7 @@ type shootClusterProfilesDataSourceModel struct {
 	KubernetesVersions []shootClusterProfilesVersionModel      `tfsdk:"kubernetes_versions"`
 	MachineImages      []shootClusterProfilesMachineImageModel `tfsdk:"machine_images"`
 	MachineTypes       []shootClusterProfilesMachineTypeModel  `tfsdk:"machine_types"`
+	Regions            []shootClusterProfilesRegionModel       `tfsdk:"regions"`
 }
 
 type shootClusterProfilesVersionModel struct {
@@ -235,6 +246,33 @@ func (d *shootClusterProfilesDataSource) Schema(_ context.Context, _ datasource.
 					},
 				},
 			},
+			"regions": schema.ListNestedAttribute{
+				Computed:    true,
+				Description: "Available regions",
+				NestedObject: schema.NestedAttributeObject{
+					Attributes: map[string]schema.Attribute{
+						"name": schema.StringAttribute{
+							Computed: true,
+						},
+						"zones": schema.ListNestedAttribute{
+							Computed:    true,
+							Description: "Availability zones in region",
+							NestedObject: schema.NestedAttributeObject{
+								Attributes: map[string]schema.Attribute{
+									"name": schema.StringAttribute{
+										Computed: true,
+									},
+									"unavailable_volume_types": schema.ListAttribute{
+										Computed:    true,
+										Description: "List of volume types that are not available in the given region",
+										ElementType: types.StringType,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
 		},
 	}
 }
@@ -245,6 +283,10 @@ func (d *shootClusterProfilesDataSource) Read(ctx context.Context, req datasourc
 	resp.Diagnostics.Append(req.Config.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
+	}
+
+	if state.GardenerDomain.IsNull() {
+		state.GardenerDomain = types.StringValue("public")
 	}
 
 	profile, err := d.client.GetCloudProfile(state.GardenerDomain.ValueString())
@@ -290,6 +332,27 @@ func (d *shootClusterProfilesDataSource) Read(ctx context.Context, req datasourc
 		state.MachineImages = append(state.MachineImages, shootClusterProfilesMachineImageModel{
 			Name:     types.StringValue(machineImage.Name),
 			Versions: imageVersions,
+		})
+	}
+
+	for _, region := range profile.Spec.Regions {
+		var zones []cloudProfileZone
+		for _, zone := range region.Zones {
+			unavailableVolumeTypes, err := types.ListValueFrom(ctx, types.StringType, zone.UnavailableVolumeTypes)
+			resp.Diagnostics.Append(err...)
+			if resp.Diagnostics.HasError() {
+				return
+			}
+
+			zones = append(zones, cloudProfileZone{
+				Name:                   types.StringValue(zone.Name),
+				UnavailableVolumeTypes: unavailableVolumeTypes,
+			})
+		}
+
+		state.Regions = append(state.Regions, shootClusterProfilesRegionModel{
+			Name:  types.StringValue(region.Name),
+			Zones: zones,
 		})
 	}
 

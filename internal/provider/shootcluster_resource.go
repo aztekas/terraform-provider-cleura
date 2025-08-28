@@ -917,6 +917,16 @@ func (r *shootClusterResource) ModifyPlan(ctx context.Context, req resource.Modi
 		plan.K8sVersion = getLatestK8sVersion(profile)
 	}
 
+	// If not specified by the user, use all availability zones in the given region
+	var availabilityZones []string
+	for _, region := range profile.Spec.Regions {
+		if region.Name == plan.Region.ValueString() {
+			for _, zone := range region.Zones {
+				availabilityZones = append(availabilityZones, zone.Name)
+			}
+		}
+	}
+
 	// Convert elements to Objects
 	var workerGroups []attr.Value
 	for _, group := range plan.ProviderDetails.WorkerGroups.Elements() {
@@ -940,6 +950,17 @@ func (r *shootClusterResource) ModifyPlan(ctx context.Context, req resource.Modi
 		if worker.ImageVersion.ValueString() == "" {
 			worker.ImageVersion = getLatestGardenlinuxVersion(profile)
 		}
+
+		// Set all availability zones if not set explicitly
+		if worker.Zones.IsUnknown() {
+			zones, err := types.ListValueFrom(ctx, types.StringType, availabilityZones)
+			resp.Diagnostics.Append(err...)
+			if resp.Diagnostics.HasError() {
+				return
+			}
+			worker.Zones = zones
+		}
+
 		workerGroups[i], diags = types.ObjectValueFrom(ctx, workerGroupModelAttrTypesV1(), worker)
 		resp.Diagnostics.Append(diags...)
 		if resp.Diagnostics.HasError() {
