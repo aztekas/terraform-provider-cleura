@@ -22,6 +22,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/booldefault"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/listplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapdefault"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/mapplanmodifier"
@@ -73,7 +74,7 @@ func (r *shootClusterResource) Configure(_ context.Context, req resource.Configu
 }
 
 func (r *shootClusterResource) ValidateConfig(ctx context.Context, req resource.ValidateConfigRequest, resp *resource.ValidateConfigResponse) {
-	var config shootClusterResourceModelV1
+	var config shootClusterResourceModelV2
 	resp.Diagnostics.Append(req.Config.Get(ctx, &config)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -164,6 +165,19 @@ func (r *shootClusterResource) Schema(ctx context.Context, _ resource.SchemaRequ
 					stringplanmodifier.RequiresReplace(),
 				},
 				Description: "Name of the shoot cluster",
+			},
+			"ha_control_plane": schema.BoolAttribute{
+				Computed:    true,
+				Optional:    true,
+				Description: "Enable High-Available deployment of control plane. Once enabled, this option cannot be reversed.",
+				PlanModifiers: []planmodifier.Bool{
+					boolplanmodifier.RequiresReplaceIf(
+						func(ctx context.Context, sr planmodifier.BoolRequest, rrifr *boolplanmodifier.RequiresReplaceIfFuncResponse) {
+							rrifr.RequiresReplace = sr.StateValue.ValueBool()
+						},
+						"Requires replace only if changing from HA to non-HA", ""),
+					boolplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"gardener_domain": schema.StringAttribute{
 				Optional: true,
@@ -631,7 +645,12 @@ func (r *shootClusterResource) UpgradeState(ctx context.Context) map[int64]resou
 					return
 				}
 
-				resp.Diagnostics.Append(resp.State.Set(ctx, shootClusterResourceModelV1{
+				haEnabled := false
+				if clusterResp.Spec.ControlPlane != (cleura.ControlPlaneDetails{}) {
+					haEnabled = true
+				}
+
+				resp.Diagnostics.Append(resp.State.Set(ctx, shootClusterResourceModelV2{
 					Timeouts:             priorStateData.Timeouts,
 					UID:                  priorStateData.UID,
 					Region:               priorStateData.Region,
@@ -642,6 +661,7 @@ func (r *shootClusterResource) UpgradeState(ctx context.Context) map[int64]resou
 					ProviderDetails:      priorStateData.ProviderDetails,
 					Hibernated:           priorStateData.Hibernated,
 					HibernationSchedules: priorStateData.HibernationSchedules,
+					HaControlPlane:       types.BoolValue(haEnabled),
 				})...)
 			},
 		},
@@ -882,7 +902,313 @@ func (r *shootClusterResource) UpgradeState(ctx context.Context) map[int64]resou
 					return
 				}
 
-				resp.Diagnostics.Append(resp.State.Set(ctx, priorStateData)...)
+				haEnabled := false
+				if clusterResp.Spec.ControlPlane != (cleura.ControlPlaneDetails{}) {
+					haEnabled = true
+				}
+
+				resp.Diagnostics.Append(resp.State.Set(ctx, shootClusterResourceModelV2{
+					Timeouts:             priorStateData.Timeouts,
+					UID:                  priorStateData.UID,
+					Region:               priorStateData.Region,
+					Project:              priorStateData.Project,
+					K8sVersion:           priorStateData.K8sVersion,
+					LastUpdated:          priorStateData.LastUpdated,
+					GardenerDomain:       priorStateData.LastUpdated,
+					ProviderDetails:      priorStateData.ProviderDetails,
+					Hibernated:           priorStateData.Hibernated,
+					HibernationSchedules: priorStateData.HibernationSchedules,
+					HaControlPlane:       types.BoolValue(haEnabled),
+				})...)
+			},
+		},
+		3: {
+			PriorSchema: &schema.Schema{
+				Attributes: map[string]schema.Attribute{
+					"timeouts": timeouts.Attributes(ctx, timeouts.Opts{
+						Create: true,
+						Delete: true,
+						Update: true,
+					}),
+					"name": schema.StringAttribute{
+						Required: true,
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+						},
+						Description: "Name of the shoot cluster",
+					},
+					"gardener_domain": schema.StringAttribute{
+						Optional: true,
+						Computed: true,
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+						},
+						Description: "Gardener domain. Defaults to 'public'",
+						Default:     stringdefault.StaticString("public"),
+					},
+					"project": schema.StringAttribute{
+						Required: true,
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+						},
+						Description: "Id of the project where cluster will be created.",
+					},
+					"region": schema.StringAttribute{
+						Required: true,
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.RequiresReplace(),
+						},
+						Description: "One of available regions for the cluster. Depends on the enabled domains in the project",
+					},
+					"kubernetes_version": schema.StringAttribute{
+						Optional:    true,
+						Computed:    true,
+						Description: "One of the currently available Kubernetes versions",
+					},
+					"last_updated": schema.StringAttribute{
+						Computed:    true,
+						Description: "Set local time when cluster resource is created and each time cluster is updated.",
+					},
+					"uid": schema.StringAttribute{
+						Computed: true,
+						PlanModifiers: []planmodifier.String{
+							stringplanmodifier.UseStateForUnknown(),
+						},
+						Description: "Unique cluster ID",
+					},
+					"hibernated": schema.BoolAttribute{
+						Computed:    true,
+						Description: "Show current hibernation state of the cluster",
+					},
+					"provider_details": schema.SingleNestedAttribute{
+						Required:    true,
+						Description: "Cluster details.",
+						Attributes: map[string]schema.Attribute{
+							"floating_pool_name": schema.StringAttribute{
+								Optional:    true,
+								Computed:    true,
+								Default:     stringdefault.StaticString("ext-net"),
+								Description: "The name of the external network to connect to. Defaults to 'ext-net'.",
+							},
+							"network_id": schema.StringAttribute{
+								Optional:    true,
+								Computed:    true,
+								Description: "The id of the internal OpenStack network to connect worker nodes to. Requires replace if modified.",
+								PlanModifiers: []planmodifier.String{
+									stringplanmodifier.RequiresReplace(),
+									stringplanmodifier.UseStateForUnknown(),
+								},
+							},
+							"router_id": schema.StringAttribute{
+								Optional:    true,
+								Computed:    true,
+								Description: "The id of the OpenStack router to connect the worker subnet to. Requires replace if modified.",
+								PlanModifiers: []planmodifier.String{
+									stringplanmodifier.RequiresReplace(),
+									stringplanmodifier.UseStateForUnknown(),
+								},
+							},
+							"worker_cidr": schema.StringAttribute{
+								Optional:    true,
+								Computed:    true,
+								Description: "The CIDR to use for worker nodes. Cannot overlap with existing subnets in the selected network. Requires replace if modified.",
+								PlanModifiers: []planmodifier.String{
+									stringplanmodifier.RequiresReplace(),
+									stringplanmodifier.UseStateForUnknown(),
+								},
+							},
+							"worker_groups": schema.ListNestedAttribute{
+								Required:    true,
+								Description: "Defines the worker groups",
+								Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
+								NestedObject: schema.NestedAttributeObject{
+									Attributes: map[string]schema.Attribute{
+										"worker_group_name": schema.StringAttribute{
+											Required:    true,
+											Description: "Worker group name. Max 6 lowercase alphanumeric characters.",
+										},
+										"min_nodes": schema.Int64Attribute{
+											Required:    true,
+											Description: "The minimum number of worker nodes in the worker group.",
+										},
+										"max_nodes": schema.Int64Attribute{
+											Required:    true,
+											Description: "The maximum number of worker nodes in the worker group",
+										},
+										"machine_type": schema.StringAttribute{
+											Required:    true,
+											Description: "The name of the desired type/flavor of the worker nodes",
+										},
+										"image_name": schema.StringAttribute{
+											Computed:    true,
+											Optional:    true,
+											Description: "The name of the image of the worker nodes",
+											Default:     stringdefault.StaticString("gardenlinux"),
+										},
+										"image_version": schema.StringAttribute{
+											Computed:    true,
+											Optional:    true,
+											Description: "The version of the image of the worker nodes",
+											PlanModifiers: []planmodifier.String{
+												stringplanmodifier.UseStateForUnknown(),
+											},
+										},
+										"worker_node_volume_size": schema.StringAttribute{
+											Computed:    true,
+											Optional:    true,
+											Description: "The desired size of the volume used for the worker nodes. Example '50Gi'",
+											Default:     stringdefault.StaticString("50Gi"),
+										},
+										"annotations": schema.MapAttribute{
+											Optional:    true,
+											Computed:    true,
+											Description: "Annotations for taints nodes",
+											ElementType: types.StringType,
+											PlanModifiers: []planmodifier.Map{
+												mapplanmodifier.UseStateForUnknown(),
+											},
+											Default: mapdefault.StaticValue(types.MapNull(types.StringType)),
+										},
+										"labels": schema.MapAttribute{
+											Optional:    true,
+											Computed:    true,
+											Description: "Labels for worker nodes",
+											ElementType: types.StringType,
+											PlanModifiers: []planmodifier.Map{
+												mapplanmodifier.UseStateForUnknown(),
+											},
+											Default: mapdefault.StaticValue(types.MapNull(types.StringType)),
+										},
+										"taints": schema.ListNestedAttribute{
+											Optional:    true,
+											Description: "Taints for worker nodes",
+											CustomType:  types.ListType{ElemType: types.ObjectType{AttrTypes: taintAttrTypesV0()}},
+											NestedObject: schema.NestedAttributeObject{
+												Attributes: map[string]schema.Attribute{
+													"key": schema.StringAttribute{
+														Required:    true,
+														Description: "Key name for taint. Must adhere to Kubernetes key naming specifications",
+													},
+													"value": schema.StringAttribute{
+														Required:    true,
+														Description: "Value for taint. Must be within Kubernetes taint value specifications",
+													},
+													"effect": schema.StringAttribute{
+														Required:    true,
+														Description: "Effect for taint. Possible values are 'NoExecute', 'NoSchedule' and 'PreferNoSchedule'",
+														Validators:  []validator.String{stringvalidator.OneOf("NoSchedule", "NoExecute", "PreferNoSchedule")},
+													},
+												},
+											},
+											PlanModifiers: []planmodifier.List{
+												listplanmodifier.UseStateForUnknown(),
+											},
+										},
+										"zones": schema.ListAttribute{
+											Computed:    true,
+											Optional:    true,
+											Description: "List of availability zones worker nodes can be scheduled in. Defaults to ['nova']",
+											ElementType: types.StringType,
+											PlanModifiers: []planmodifier.List{
+												listplanmodifier.UseStateForUnknown(),
+											},
+										},
+									},
+								},
+							},
+						},
+					}, // provider_details end here
+					"hibernation_schedules": schema.ListNestedAttribute{
+						Optional:    true,
+						Description: "An array containing desired hibernation schedules",
+						Validators:  []validator.List{listvalidator.SizeAtLeast(1)},
+						NestedObject: schema.NestedAttributeObject{
+							Attributes: map[string]schema.Attribute{
+								"start": schema.StringAttribute{
+									Optional:    true,
+									Description: "The time when the hibernation should start in Cron time format",
+								},
+								"end": schema.StringAttribute{
+									Optional:    true,
+									Description: "The time when the hibernation should end in Cron time format",
+								},
+							},
+						},
+					},
+					"maintenance": schema.SingleNestedAttribute{
+						Optional:    true,
+						Computed:    true,
+						Description: "Configure maintenance properties",
+						Attributes: map[string]schema.Attribute{
+							"auto_update_kubernetes": schema.BoolAttribute{
+								Optional:    true,
+								Computed:    true,
+								Description: "Toggle wether or not to allow automatic kubernetes upgrades. Defaults to 'true'",
+								Default:     booldefault.StaticBool(true),
+							},
+							"auto_update_machine_image": schema.BoolAttribute{
+								Optional:    true,
+								Computed:    true,
+								Description: "Toggle wether or not to allow automatic machine image upgrades. Defaults to 'true'",
+								Default:     booldefault.StaticBool(true),
+							},
+							"time_window_begin": schema.StringAttribute{
+								Optional:    true,
+								Computed:    true,
+								Description: "Set when time windows for upgrades should begin, defaults to '000000+0100'",
+								Default:     stringdefault.StaticString("000000+0100"),
+							},
+							"time_window_end": schema.StringAttribute{
+								Optional:    true,
+								Computed:    true,
+								Description: "Set when time windows for upgrades should end, defaults to '010000+0100'",
+								Default:     stringdefault.StaticString("010000+0100"),
+							},
+						},
+					},
+				},
+			},
+			StateUpgrader: func(ctx context.Context, req resource.UpgradeStateRequest, resp *resource.UpgradeStateResponse) {
+				var priorStateData shootClusterResourceModelV1
+
+				resp.Diagnostics.Append(req.State.Get(ctx, &priorStateData)...)
+				if resp.Diagnostics.HasError() {
+					return
+				}
+
+				clusterResp, err := r.client.GetShootCluster(
+					priorStateData.GardenerDomain.ValueString(),
+					priorStateData.Name.ValueString(),
+					priorStateData.Region.ValueString(),
+					priorStateData.Project.ValueString(),
+				)
+
+				if err != nil {
+					resp.Diagnostics.AddError(
+						"Unable to get cluster data",
+						err.Error(),
+					)
+					return
+				}
+
+				haEnabled := false
+				if clusterResp.Spec.ControlPlane != (cleura.ControlPlaneDetails{}) {
+					haEnabled = true
+				}
+
+				resp.Diagnostics.Append(resp.State.Set(ctx, shootClusterResourceModelV2{
+					Timeouts:             priorStateData.Timeouts,
+					UID:                  priorStateData.UID,
+					Region:               priorStateData.Region,
+					Project:              priorStateData.Project,
+					K8sVersion:           priorStateData.K8sVersion,
+					LastUpdated:          priorStateData.LastUpdated,
+					GardenerDomain:       priorStateData.LastUpdated,
+					ProviderDetails:      priorStateData.ProviderDetails,
+					Hibernated:           priorStateData.Hibernated,
+					HibernationSchedules: priorStateData.HibernationSchedules,
+					HaControlPlane:       types.BoolValue(haEnabled),
+				})...)
 			},
 		},
 	}
@@ -895,7 +1221,7 @@ func (r *shootClusterResource) ModifyPlan(ctx context.Context, req resource.Modi
 		return
 	}
 
-	var plan shootClusterResourceModelV1
+	var plan shootClusterResourceModelV2
 	diags := req.Plan.Get(ctx, &plan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -1030,6 +1356,24 @@ type shootClusterResourceModelV1 struct {
 	Hibernated           types.Bool                 `tfsdk:"hibernated"`
 	HibernationSchedules []hibernationScheduleModel `tfsdk:"hibernation_schedules"`
 	Maintenance          types.Object               `tfsdk:"maintenance"`
+	// Conditions          []shootClusterConditionsModel          `tfsdk:"conditions"`
+	// AdvertisedAddresses []shootClusterAdvertisedAddressesModel `tfsdk:"advertised_addresses"`
+}
+
+type shootClusterResourceModelV2 struct {
+	Timeouts             timeouts.Value             `tfsdk:"timeouts"`
+	UID                  types.String               `tfsdk:"uid"`
+	Name                 types.String               `tfsdk:"name"`
+	Region               types.String               `tfsdk:"region"`
+	Project              types.String               `tfsdk:"project"`
+	K8sVersion           types.String               `tfsdk:"kubernetes_version"`
+	LastUpdated          types.String               `tfsdk:"last_updated"`
+	GardenerDomain       types.String               `tfsdk:"gardener_domain"`
+	ProviderDetails      shootProviderDetailsModel  `tfsdk:"provider_details"`
+	Hibernated           types.Bool                 `tfsdk:"hibernated"`
+	HibernationSchedules []hibernationScheduleModel `tfsdk:"hibernation_schedules"`
+	Maintenance          types.Object               `tfsdk:"maintenance"`
+	HaControlPlane       types.Bool                 `tfsdk:"ha_control_plane"`
 	// Conditions          []shootClusterConditionsModel          `tfsdk:"conditions"`
 	// AdvertisedAddresses []shootClusterAdvertisedAddressesModel `tfsdk:"advertised_addresses"`
 }
@@ -1557,7 +1901,7 @@ func cleuraWorkerCreateToObjectValue(ctx context.Context, worker cleura.WorkerCr
 // Create creates the resource and sets the initial Terraform state.
 func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
 	tflog.Debug(ctx, "XXX_CREATE")
-	var plan shootClusterResourceModelV1
+	var plan shootClusterResourceModelV2
 	diags := req.Plan.Get(ctx, &plan)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -1649,6 +1993,7 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 					End:   maintenance.TimeWindowEnd.ValueString(),
 				},
 			},
+			EnableHaControlPlane: plan.HaControlPlane.ValueBool(),
 		},
 	}
 	tflog.Debug(ctx, fmt.Sprintf("Here's clusterRequest: %+v", clusterRequest))
@@ -1713,6 +2058,22 @@ func (r *shootClusterResource) Create(ctx context.Context, req resource.CreateRe
 		return
 	}
 
+	// Fetch updated information about the cluster to get an accurate reading on control-plane HA status
+	getShootResponse, err := r.client.GetShootCluster(plan.GardenerDomain.ValueString(), plan.Name.ValueString(), plan.Region.ValueString(), plan.Project.ValueString())
+	if err != nil {
+		resp.Diagnostics.AddError(
+			"Error Reading Shoot cluster",
+			"Could not read Shoot cluster name "+plan.Name.ValueString()+": "+err.Error(),
+		)
+		return
+	}
+
+	haEnabled := false
+	if getShootResponse.Spec.ControlPlane != (cleura.ControlPlaneDetails{}) {
+		haEnabled = true
+	}
+
+	plan.HaControlPlane = types.BoolValue(haEnabled)
 	// Set state to fully populated data
 	diags = resp.State.Set(ctx, plan)
 	resp.Diagnostics.Append(diags...)
@@ -1819,7 +2180,7 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 	tflog.Debug(ctx, "XXX_READ")
 
 	// Get current state
-	var state shootClusterResourceModelV1
+	var state shootClusterResourceModelV2
 	diags := req.State.Get(ctx, &state)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -1846,6 +2207,12 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 	}
 	tflog.Debug(ctx, fmt.Sprintf("shootResponse: %+v", shootResponse))
 
+	haEnabled := false
+	if shootResponse.Spec.ControlPlane != (cleura.ControlPlaneDetails{}) {
+		haEnabled = true
+	}
+
+	state.HaControlPlane = types.BoolValue(haEnabled)
 	state.Name = types.StringValue(shootResponse.Metadata.Name)
 	state.UID = types.StringValue(shootResponse.Metadata.UID)
 	state.Hibernated = types.BoolValue(shootResponse.Status.Hibernated)
@@ -1904,8 +2271,8 @@ func (r *shootClusterResource) Read(ctx context.Context, req resource.ReadReques
 // Update updates the resource and sets the updated Terraform state on success.
 func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	tflog.Debug(ctx, "XXX_UPDATE")
-	var plan shootClusterResourceModelV1
-	var currentState shootClusterResourceModelV1
+	var plan shootClusterResourceModelV2
+	var currentState shootClusterResourceModelV2
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
 	if resp.Diagnostics.HasError() {
 		return
@@ -1922,7 +2289,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	ctx, cancel := context.WithTimeout(ctx, createTimeout)
 	defer cancel()
 
-	if !reflect.DeepEqual(plan.HibernationSchedules, currentState.HibernationSchedules) || !plan.Maintenance.Equal(currentState.Maintenance) || !reflect.DeepEqual(plan.K8sVersion, currentState.K8sVersion) {
+	if !reflect.DeepEqual(plan.HibernationSchedules, currentState.HibernationSchedules) || !plan.Maintenance.Equal(currentState.Maintenance) || !reflect.DeepEqual(plan.K8sVersion, currentState.K8sVersion) || !reflect.DeepEqual(plan.HaControlPlane, currentState.HaControlPlane) {
 		tflog.Debug(ctx, "Hibernation schedules or K8s version changed")
 
 		hibernationSchedules := []cleura.HibernationSchedule{}
@@ -1942,6 +2309,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 
 		clusterUpdateRequest := cleura.ShootClusterRequest{
 			Shoot: cleura.ShootClusterRequestConfig{
+				Provider: &cleura.ProviderDetailsRequest{},
 				KubernetesVersion: &cleura.K8sVersion{
 					Version: plan.K8sVersion.ValueString(),
 				},
@@ -1958,6 +2326,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 						End:   maintenance.TimeWindowEnd.ValueString(),
 					},
 				},
+				EnableHaControlPlane: plan.HaControlPlane.ValueBool(),
 			},
 		}
 
@@ -1977,7 +2346,6 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 			)
 			return
 		}
-
 	}
 
 	tflog.Debug(ctx, "Workergroups changed")
@@ -2085,6 +2453,12 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 	}
 	tflog.Debug(ctx, fmt.Sprintf("response after all: %+v, ", clusterUpdateResp))
 
+	haEnabled := false
+	if clusterUpdateResp.Spec.ControlPlane != (cleura.ControlPlaneDetails{}) {
+		haEnabled = true
+	}
+	plan.HaControlPlane = types.BoolValue(haEnabled)
+
 	plan.UID = currentState.UID // types.StringValue(clusterUpdateResp.Metadata.UID)
 	plan.Hibernated = types.BoolValue(clusterUpdateResp.Status.Hibernated)
 	plan.LastUpdated = types.StringValue(time.Now().Format(time.RFC850))
@@ -2128,7 +2502,7 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 // Delete deletes the resource and removes the Terraform state on success.
 func (r *shootClusterResource) Delete(ctx context.Context, req resource.DeleteRequest, resp *resource.DeleteResponse) {
 	tflog.Debug(ctx, "XXX_DELETE")
-	var state shootClusterResourceModelV1
+	var state shootClusterResourceModelV2
 	diags := req.State.Get(ctx, &state)
 	resp.Diagnostics.Append(diags...)
 	if resp.Diagnostics.HasError() {
@@ -2195,7 +2569,7 @@ func getCreateModifyDeleteWorkgroups(wgsPlan []workerGroupModelV1, wgsState []wo
 
 func (r *shootClusterResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	idParts := strings.Split(req.ID, ",")
-	var state shootClusterResourceModelV1
+	var state shootClusterResourceModelV2
 	tflog.Debug(ctx, fmt.Sprintf("idparts: %v", idParts))
 	if len(idParts) != 4 || idParts[0] == "" || idParts[1] == "" || idParts[2] == "" || idParts[3] == "" {
 		resp.Diagnostics.AddError(
@@ -2210,17 +2584,25 @@ func (r *shootClusterResource) ImportState(ctx context.Context, req resource.Imp
 	state.Project = types.StringValue(idParts[3])
 
 	// Get refreshed shoot cluster from cleura
-	shootResponse, err := r.client.GetShootCluster(idParts[0], idParts[1], idParts[2], idParts[3])
+
+	shootResponse, err := r.client.GetShootCluster(state.GardenerDomain.ValueString(), state.Name.ValueString(), state.Region.ValueString(), state.Project.ValueString())
+	// shootResponse, err := r.client.GetShootCluster(idParts[0], idParts[1], idParts[2], idParts[3])
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Error Reading Shoot cluster",
-			"Could not read Shoot cluster name "+idParts[0]+": "+err.Error(),
+			"Could not read Shoot cluster name "+idParts[1]+": "+err.Error(),
 		)
 		return
 	}
 	tflog.Debug(ctx, fmt.Sprintf("shootResponse: %+v", shootResponse))
 
+	haEnabled := false
+	if shootResponse.Spec.ControlPlane != (cleura.ControlPlaneDetails{}) {
+		haEnabled = true
+	}
+
 	state.UID = types.StringValue(shootResponse.Metadata.UID)
+	state.HaControlPlane = types.BoolValue(haEnabled)
 	state.Hibernated = types.BoolValue(shootResponse.Status.Hibernated)
 	state.K8sVersion = types.StringValue(shootResponse.Spec.Kubernetes.Version)
 	state.ProviderDetails.FloatingPoolName = types.StringValue(shootResponse.Spec.Provider.InfrastructureConfig.FloatingPoolName)

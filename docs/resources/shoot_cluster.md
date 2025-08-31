@@ -59,6 +59,7 @@ output "cluster" {
 ### Optional
 
 - `gardener_domain` (String) Gardener domain. Defaults to 'public'
+- `ha_control_plane` (Boolean) Enable High-Available deployment of control plane. Once enabled, this option cannot be reversed.
 - `hibernation_schedules` (Attributes List) An array containing desired hibernation schedules (see [below for nested schema](#nestedatt--hibernation_schedules))
 - `kubernetes_version` (String) One of the currently available Kubernetes versions
 - `maintenance` (Attributes) Configure maintenance properties (see [below for nested schema](#nestedatt--maintenance))
