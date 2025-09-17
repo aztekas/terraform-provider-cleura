@@ -2326,8 +2326,12 @@ func (r *shootClusterResource) Update(ctx context.Context, req resource.UpdateRe
 						End:   maintenance.TimeWindowEnd.ValueString(),
 					},
 				},
-				EnableHaControlPlane: plan.HaControlPlane.ValueBool(),
 			},
+		}
+
+		// Only set the EnableHaControlPlane flag if enabling for the first time
+		if !currentState.HaControlPlane.ValueBool() {
+			clusterUpdateRequest.Shoot.EnableHaControlPlane = plan.HaControlPlane.ValueBool()
 		}
 
 		_, err := r.client.UpdateShootCluster(plan.GardenerDomain.ValueString(), plan.Region.ValueString(), plan.Project.ValueString(), plan.Name.ValueString(), clusterUpdateRequest)
