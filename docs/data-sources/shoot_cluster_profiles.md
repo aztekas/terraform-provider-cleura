@@ -62,6 +62,7 @@ output "latest_gardenlinux_image" {
 - `kubernetes_versions` (Attributes List) Available Kubernetes versions (see [below for nested schema](#nestedatt--kubernetes_versions))
 - `machine_images` (Attributes List) Available machine images (see [below for nested schema](#nestedatt--machine_images))
 - `machine_types` (Attributes List) Available machine types (see [below for nested schema](#nestedatt--machine_types))
+- `regions` (Attributes List) Available regions (see [below for nested schema](#nestedatt--regions))
 
 <a id="nestedatt--filters"></a>
 ### Nested Schema for `filters`
@@ -138,3 +139,20 @@ Read-Only:
 - `memory` (String)
 - `name` (String)
 - `usable` (Boolean)
+
+
+<a id="nestedatt--regions"></a>
+### Nested Schema for `regions`
+
+Read-Only:
+
+- `name` (String)
+- `zones` (Attributes List) Availability zones in region (see [below for nested schema](#nestedatt--regions--zones))
+
+<a id="nestedatt--regions--zones"></a>
+### Nested Schema for `regions.zones`
+
+Read-Only:
+
+- `name` (String)
+- `unavailable_volume_types` (List of String) List of volume types that are not available in the given region
